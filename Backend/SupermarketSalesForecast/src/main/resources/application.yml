@@ -1,0 +1,29 @@
+server:
+  port: 8999
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/supermarket_forecasting_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=GMT%2B8
+    username: root
+    password: 123456
+  
+  # 文件上传配置
+  servlet:
+    multipart:
+      max-file-size: 10MB      # 单个文件最大限制
+      max-request-size: 10MB   # 单次请求最大限制
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+# JWT 配置（用于登录鉴权）
+# 注意：secret 建议至少 32 字节以上（HS256 要求），线上务必放到环境变量/配置中心，避免泄露
+jwt:
+  secret: "SupermarketSalesForecast-ChangeMe-To-A-Long-Secret-Key-2026"
+  expire-ms: 86400000 # Token 过期时间（毫秒），默认 1 天
