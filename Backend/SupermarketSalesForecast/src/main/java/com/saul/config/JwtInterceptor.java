@@ -2,7 +2,7 @@ package com.saul.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.saul.common.Result;
-import com.saul.utils.JwtUtils;
+import com.saul.common.utils.JwtUtils;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.http.HttpServletRequest;
