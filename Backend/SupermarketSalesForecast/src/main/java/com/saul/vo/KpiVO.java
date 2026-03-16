@@ -8,23 +8,8 @@ import java.math.BigDecimal;
  */
 @Data
 public class KpiVO {
-    /**
-     * 在售商品总数 (SKU)
-     */
-    private Integer totalSku;
-
-    /**
-     * 库存告急 SKU 数 (0 < stock < safetyStock)
-     */
-    private Integer warningSku;
-
-    /**
-     * 已售罄 SKU 数 (stock == 0)
-     */
-    private Integer soldOutSku;
-
-    /**
-     * 当前库存总货值 (Σ purchasePrice * stock)
-     */
-    private BigDecimal totalValue;
+    private Integer totalSku;    // 在售商品总数
+    private Integer warningSku;  // 库存告急 SKU 数 (0 < stock < safetyStock)
+    private Integer soldOutSku;  // 已售罄 SKU 数 (stock == 0)
+    private BigDecimal totalValue; // 当前库存总货值
 }

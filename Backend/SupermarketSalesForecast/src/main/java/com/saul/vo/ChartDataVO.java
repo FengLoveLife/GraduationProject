@@ -17,7 +17,7 @@ public class ChartDataVO {
     private String name;
 
     /**
-     * 数值
+     * 数值 (兼容 Long 和 BigDecimal)
      */
-    private Long value;
+    private Object value;
 }
