@@ -31,4 +31,7 @@ public class SalesImportExcelDTO {
 
     @ExcelProperty("销售时间")
     private String saleTime;
+
+    @ExcelProperty("收银机编号")
+    private String operator;
 }

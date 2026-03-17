@@ -25,6 +25,12 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
     @Select("SELECT product_name as productName, SUM(quantity) as quantity, SUM(subtotal_amount) as amount FROM sales_order_item WHERE sale_date BETWEEN #{startDate} AND #{endDate} GROUP BY product_name ORDER BY quantity DESC LIMIT 10")
     List<TopProductVO> getTop10Products(@Param("startDate") String startDate, @Param("endDate") String endDate);
 
-    @Select("SELECT category_name as categoryName, SUM(subtotal_amount) as amount FROM sales_order_item WHERE sale_date BETWEEN #{startDate} AND #{endDate} GROUP BY category_name ORDER BY amount DESC")
+    // 通过二级分类关联一级分类（level=1）
+    @Select("SELECT COALESCE(pc1.name, '未分类') as categoryName, SUM(soi.subtotal_amount) as amount " +
+            "FROM sales_order_item soi " +
+            "LEFT JOIN product_category pc2 ON soi.category_id = pc2.id " +
+            "LEFT JOIN product_category pc1 ON pc2.parent_id = pc1.id " +
+            "WHERE soi.sale_date BETWEEN #{startDate} AND #{endDate} " +
+            "GROUP BY categoryName ORDER BY amount DESC")
     List<Map<String, Object>> getCategoryPie(@Param("startDate") String startDate, @Param("endDate") String endDate);
 }

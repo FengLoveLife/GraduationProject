@@ -42,7 +42,7 @@ public class SalesOrder implements Serializable {
     /** 销售时间 */
     private LocalDateTime saleTime;
 
-    /** 操作员/收银员 */
+    /** 操作员/收银机编号 */
     private String operator;
 
     /** 备注 */

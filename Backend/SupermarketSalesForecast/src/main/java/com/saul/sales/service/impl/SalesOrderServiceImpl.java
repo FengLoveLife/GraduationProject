@@ -124,7 +124,9 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 SalesOrder order = new SalesOrder();
                 order.setOrderNo(orderNo);
                 order.setPaymentType(firstItem.getPaymentType());
-                order.setOperator(operator);
+                // 优先使用Excel中的收银机编号，没有则使用登录操作员
+                order.setOperator(StringUtils.hasText(firstItem.getOperator())
+                        ? firstItem.getOperator() : operator);
                 
                 LocalDateTime saleTime = LocalDateTime.parse(firstItem.getSaleTime(), dtf);
                 order.setSaleTime(saleTime);

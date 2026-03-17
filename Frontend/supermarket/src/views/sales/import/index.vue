@@ -159,8 +159,8 @@ const fetchRecentOrders = async () => {
 
 // 下载模板 (纯前端生成)
 const downloadTemplate = () => {
-  const headers = "订单编号,商品编码,实际售价,销售数量,是否促销,支付方式,销售时间"
-  const example = "ORD-MOCK-001,SP1101,6.50,2,0,1,2026-03-10 09:00:00"
+  const headers = "订单编号,商品编码,实际售价,销售数量,是否促销,支付方式,销售时间,收银机编号"
+  const example = "ORD-20260310-001,SP1101,6.50,2,0,1,2026-03-10 09:00:00,POS-01"
   const csvContent = `${headers}\n${example}`
   
   // 添加 BOM 头防乱码

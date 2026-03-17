@@ -64,7 +64,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="收银员" prop="operator" width="120" align="center" />
+        <el-table-column label="收银机" prop="operator" width="120" align="center" />
 
         <el-table-column label="操作" width="120" align="center" fixed="right">
           <template #default="{ row }">
