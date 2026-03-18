@@ -5,7 +5,8 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-@MapperScan("com.saul.**.mapper")
+@MapperScan({"com.saul.user.mapper", "com.saul.user.log.mapper", "com.saul.product.mapper",
+             "com.saul.inventory.mapper", "com.saul.sales.mapper", "com.saul.upload.mapper"})
 public class SupermarketSalesForecastApplication {
 
     public static void main(String[] args) {

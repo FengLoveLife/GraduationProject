@@ -2,6 +2,7 @@ package com.saul.product.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.saul.common.Result;
+import com.saul.common.annotation.OperationLog;
 import com.saul.product.dto.ProductAddDTO;
 import com.saul.product.dto.ProductQueryDTO;
 import com.saul.product.dto.ProductUpdateDTO;
@@ -52,6 +53,7 @@ public class ProductController {
      * 新增商品
      */
     @PostMapping("/")
+    @OperationLog(type = "PRODUCT", desc = "新增商品")
     public Result<Void> add(@Validated @RequestBody ProductAddDTO addDTO) {
         productService.addProduct(addDTO);
         return Result.success();
@@ -61,6 +63,7 @@ public class ProductController {
      * 修改商品
      */
     @PutMapping("/")
+    @OperationLog(type = "PRODUCT", desc = "修改商品")
     public Result<Void> update(@Validated @RequestBody ProductUpdateDTO updateDTO) {
         productService.updateProduct(updateDTO);
         return Result.success();
@@ -70,6 +73,7 @@ public class ProductController {
      * 删除商品
      */
     @DeleteMapping("/{id}")
+    @OperationLog(type = "PRODUCT", desc = "删除商品")
     public Result<Void> delete(@PathVariable Long id) {
         productService.deleteProduct(id);
         return Result.success();

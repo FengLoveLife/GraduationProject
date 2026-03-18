@@ -66,7 +66,11 @@ const menu = [
     key: '/settings',
     title: '系统安全管理',
     icon: 'Setting',
-    type: 'item',
+    type: 'sub',
+    children: [
+      { key: '/settings/profile', title: '个人中心', icon: 'User' },
+      { key: '/settings/log', title: '操作日志', icon: 'Document' },
+    ],
   },
 ]
 

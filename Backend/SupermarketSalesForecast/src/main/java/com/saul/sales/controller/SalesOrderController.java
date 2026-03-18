@@ -2,6 +2,7 @@ package com.saul.sales.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.saul.common.Result;
+import com.saul.common.annotation.OperationLog;
 import com.saul.sales.dto.SalesOrderQueryDTO;
 import com.saul.sales.service.ISalesOrderItemService;
 import com.saul.sales.service.ISalesOrderService;
@@ -47,6 +48,7 @@ public class SalesOrderController {
      * 导入销售日结 Excel 数据
      */
     @PostMapping("/import")
+    @OperationLog(type = "SALES", desc = "导入销售数据")
     public Result<String> importSales(@RequestParam("file") MultipartFile file, HttpServletRequest request) {
         // 1. 从请求属性中获取操作人信息
         Claims claims = (Claims) request.getAttribute("jwtClaims");
@@ -59,7 +61,7 @@ public class SalesOrderController {
 
         // 2. 执行导入
         salesOrderService.importSalesData(file, operator);
-        
+
         return Result.success("销售数据导入成功");
     }
 }

@@ -8,11 +8,10 @@ import lombok.Data;
 
 import java.io.Serial;
 import java.io.Serializable;
+import java.time.LocalDateTime;
 
 /**
- * 管理员用户实体（对应数据库表：users 或 sys_user）。
- * <p>
- *
+ * 系统用户实体
  */
 @Data
 @TableName("sys_user")
@@ -34,7 +33,7 @@ public class SysUser implements Serializable {
     private String username;
 
     /**
-     * 密码（当前项目可先明文/MD5，后续建议改为 BCrypt）
+     * 密码
      */
     @TableField("password")
     private String password;
@@ -50,4 +49,28 @@ public class SysUser implements Serializable {
      */
     @TableField("status")
     private String status;
+
+    /**
+     * 联系电话
+     */
+    @TableField("phone")
+    private String phone;
+
+    /**
+     * 最后登录时间
+     */
+    @TableField("last_login_time")
+    private LocalDateTime lastLoginTime;
+
+    /**
+     * 创建时间
+     */
+    @TableField("create_time")
+    private LocalDateTime createTime;
+
+    /**
+     * 更新时间
+     */
+    @TableField("update_time")
+    private LocalDateTime updateTime;
 }

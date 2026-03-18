@@ -110,9 +110,23 @@ const router = createRouter({
         },
         {
           path: 'settings',
-          name: 'Settings',
-          component: Placeholder,
+          component: RouteView,
+          redirect: '/settings/profile',
           meta: { title: '系统安全管理' },
+          children: [
+            {
+              path: 'profile',
+              name: 'Profile',
+              component: () => import('../views/settings/profile/index.vue'),
+              meta: { title: '个人中心' },
+            },
+            {
+              path: 'log',
+              name: 'OperationLog',
+              component: () => import('../views/settings/log/index.vue'),
+              meta: { title: '操作日志' },
+            },
+          ],
         },
       ],
     },
