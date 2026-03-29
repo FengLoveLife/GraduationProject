@@ -44,13 +44,22 @@ const menu = [
     key: '/forecasting',
     title: '智能销量预测',
     icon: 'TrendCharts',
-    type: 'item',
+    type: 'sub',
+    children: [
+      { key: '/forecasting/dashboard', title: '预测看板', icon: 'DataBoard' },
+      { key: '/forecasting/predict', title: '销量预测', icon: 'Aim' },
+      { key: '/forecasting/analysis', title: '预测分析', icon: 'DataLine' },
+    ],
   },
   {
     key: '/restocking',
     title: '智能补货建议',
     icon: 'Van',
-    type: 'item',
+    type: 'sub',
+    children: [
+      { key: '/restocking/suggestion', title: '进货建议', icon: 'ShoppingCart' },
+      { key: '/restocking/records', title: '进货记录', icon: 'Document' },
+    ],
   },
   {
     key: '/inventory',

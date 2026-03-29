@@ -21,7 +21,7 @@ const router = createRouter({
         {
           path: 'dashboard',
           name: 'Dashboard',
-          component: Placeholder,
+          component: () => import('../views/dashboard/index.vue'),
           meta: { title: '首页控制台' },
         },
         {
@@ -78,15 +78,49 @@ const router = createRouter({
         },
         {
           path: 'forecasting',
-          name: 'Forecasting',
-          component: Placeholder,
+          component: RouteView,
+          redirect: '/forecasting/dashboard',
           meta: { title: '智能销量预测' },
+          children: [
+            {
+              path: 'dashboard',
+              name: 'ForecastDashboard',
+              component: () => import('../views/forecast/dashboard/index.vue'),
+              meta: { title: '预测看板' },
+            },
+            {
+              path: 'predict',
+              name: 'ForecastPredict',
+              component: () => import('../views/forecast/predict/index.vue'),
+              meta: { title: '销量预测' },
+            },
+            {
+              path: 'analysis',
+              name: 'ForecastAnalysis',
+              component: () => import('../views/forecast/analysis/index.vue'),
+              meta: { title: '预测分析' },
+            },
+          ],
         },
         {
           path: 'restocking',
-          name: 'Restocking',
-          component: Placeholder,
+          component: RouteView,
+          redirect: '/restocking/suggestion',
           meta: { title: '智能补货建议' },
+          children: [
+            {
+              path: 'suggestion',
+              name: 'RestockingSuggestion',
+              component: () => import('../views/restocking/suggestion/index.vue'),
+              meta: { title: '进货建议' },
+            },
+            {
+              path: 'records',
+              name: 'RestockingRecords',
+              component: () => import('../views/restocking/records/index.vue'),
+              meta: { title: '进货记录' },
+            },
+          ],
         },
         {
           path: 'inventory',

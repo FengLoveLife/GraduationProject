@@ -12,18 +12,23 @@ CREATE TABLE users (
                        PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户管理表';
 
---商品分类表
-CREATE TABLE `product_category` (
-                                    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '分类ID',
-                                    `name` VARCHAR(50) NOT NULL COMMENT '分类名称',
-                                    `parent_id` BIGINT DEFAULT '0' COMMENT '父级分类ID (0表示顶级)',
-                                    `level` TINYINT DEFAULT '1' COMMENT '层级',
-                                    `sort_order` INT DEFAULT '0' COMMENT '排序权重',
-                                    `status` TINYINT DEFAULT '1' COMMENT '状态: 1-启用, 0-禁用',
-                                    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-                                    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-                                    PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品分类表';
+ -- 商品分类表
+create table product_category
+(
+    id                 bigint auto_increment comment '分类ID'
+        primary key,
+    name               varchar(50)                        not null comment '分类名称',
+    parent_id          bigint   default 0                 null comment '父级分类ID (0表示顶级)',
+    level              tinyint  default 1                 null comment '层级',
+    sort_order         int      default 0                 null comment '排序权重',
+    restock_cycle_days int      default 7                 null comment '补货周期(天)',
+    status             tinyint  default 1                 null comment '状态: 1-启用, 0-禁用',
+    create_time        datetime default CURRENT_TIMESTAMP null comment '创建时间',
+    update_time        datetime default CURRENT_TIMESTAMP null on update CURRENT_TIMESTAMP comment '更新时间'
+)
+    comment '商品分类表';
+
+
 
 -- ----------------------------
 -- 创建商品信息表
@@ -127,3 +132,136 @@ CREATE TABLE `calendar_factor` (
                                    PRIMARY KEY (`id`),
                                    UNIQUE KEY `uk_date` (`date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='日历影响因子表';
+
+
+-- 极简版：销量预测结果表
+CREATE TABLE `forecast_result` (
+                                   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+
+    -- 预测目标
+                                   `forecast_date` DATE NOT NULL COMMENT '预测的目标日期',
+                                   `product_id` BIGINT NOT NULL COMMENT '商品ID',
+
+    -- 冗余字段（仅用于前端展示，避免JOIN）
+                                   `product_code` VARCHAR(50) NOT NULL COMMENT '商品编码',
+                                   `product_name` VARCHAR(100) NOT NULL COMMENT '商品名称',
+                                   `category_id` BIGINT DEFAULT NULL COMMENT '分类ID',
+                                   `category_name` VARCHAR(50) DEFAULT NULL COMMENT '分类名称',
+
+    -- 核心数据
+                                   `predicted_quantity` INT NOT NULL COMMENT '预测销量',
+                                   `actual_quantity` INT DEFAULT NULL COMMENT '实际销量(预测日期过后填入)',
+                                   `error_rate` DECIMAL(5,2) DEFAULT NULL COMMENT '预测误差率(%)',
+
+                                   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+                                   PRIMARY KEY (`id`),
+                                   UNIQUE KEY `uk_product_date` (`product_id`, `forecast_date`),
+                                   KEY `idx_forecast_date` (`forecast_date`),
+                                   KEY `idx_category_id` (`category_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='销量预测结果表';
+
+-- 进货建议表
+CREATE TABLE `purchase_suggestion` (
+                                       `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+
+    -- 关联信息
+                                       `product_id` BIGINT NOT NULL COMMENT '商品ID',
+                                       `category_id` BIGINT NOT NULL COMMENT '分类ID',
+
+    -- ========== 冗余字段（减少JOIN查询） ==========
+                                       `product_code` VARCHAR(50) NOT NULL COMMENT '商品编码',
+                                       `product_name` VARCHAR(100) NOT NULL COMMENT '商品名称',
+                                       `category_name` VARCHAR(50) NOT NULL COMMENT '分类名称',
+                                       `purchase_price` DECIMAL(10,2) DEFAULT NULL COMMENT '进货单价',
+
+    -- ========== 预测基础数据 ==========
+                                       `predicted_quantity` INT NOT NULL COMMENT '预测销量',
+                                       `daily_sales` DECIMAL(10,2) DEFAULT 0 COMMENT '日均销量(预测值或近7天均值)',
+
+    -- ========== 库存状态 ==========
+                                       `current_stock` INT NOT NULL COMMENT '当前库存',
+                                       `safety_stock` INT NOT NULL COMMENT '安全库存',
+                                       `target_stock` INT NOT NULL COMMENT '目标库存',
+
+    -- ========== 灯位状态 ==========
+                                       `light_status` TINYINT DEFAULT 1 COMMENT '灯位: 1红灯(必须补货) 2黄灯(顺带补货)',
+
+    -- ========== 进货建议 ==========
+                                       `suggested_quantity` INT NOT NULL COMMENT '系统建议进货量',
+                                       `adjusted_quantity` INT DEFAULT NULL COMMENT '用户调整后的进货量',
+                                       `final_quantity` INT NOT NULL COMMENT '最终进货量',
+
+    -- ========== 状态管理 ==========
+                                       `status` TINYINT NOT NULL DEFAULT 0 COMMENT '状态: 0待处理 1已生成进货单 2已忽略',
+                                       `remark` VARCHAR(255) DEFAULT NULL COMMENT '备注',
+
+    -- ========== 审计字段 ==========
+                                       `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                       `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+                                       PRIMARY KEY (`id`),
+                                       KEY `idx_category_id` (`category_id`),
+                                       KEY `idx_status` (`status`),
+                                       KEY `idx_light_status` (`light_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='进货建议表';
+
+-- 进货单主表
+CREATE TABLE `purchase_order` (
+                                  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+                                  `order_no` VARCHAR(32) NOT NULL COMMENT '进货单号',
+
+    -- ========== 订单信息 ==========
+                                  `total_quantity` INT NOT NULL DEFAULT 0 COMMENT '商品总数量',
+                                  `total_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '进货总金额',
+
+    -- ========== 时间信息 ==========
+                                  `order_date` DATE NOT NULL COMMENT '下单日期',
+                                  `expected_date` DATE DEFAULT NULL COMMENT '预计到货日期',
+                                  `actual_arrival_date` DATE DEFAULT NULL COMMENT '实际到货日期',
+
+    -- ========== 状态管理 ==========
+                                  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '状态: 0待确认 1已下单 2已完成 3已取消',
+
+    -- ========== 其他 ==========
+                                  `remark` VARCHAR(500) DEFAULT NULL COMMENT '备注',
+                                  `operator` VARCHAR(50) DEFAULT NULL COMMENT '操作人',
+
+                                  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+                                  PRIMARY KEY (`id`),
+                                  UNIQUE KEY `uk_order_no` (`order_no`),
+                                  KEY `idx_order_date` (`order_date`),
+                                  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='进货单主表';
+
+-- 进货单明细表
+CREATE TABLE `purchase_order_item` (
+                                       `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+                                       `order_id` BIGINT NOT NULL COMMENT '进货单ID',
+                                       `order_no` VARCHAR(32) NOT NULL COMMENT '进货单号(冗余)',
+
+    -- ========== 商品信息 ==========
+                                       `product_id` BIGINT NOT NULL COMMENT '商品ID',
+
+    -- ========== 冗余字段 ==========
+                                       `product_code` VARCHAR(50) NOT NULL COMMENT '商品编码',
+                                       `product_name` VARCHAR(100) NOT NULL COMMENT '商品名称',
+                                       `category_name` VARCHAR(50) DEFAULT NULL COMMENT '分类名称',
+
+    -- ========== 进货信息 ==========
+                                       `purchase_price` DECIMAL(10,2) NOT NULL COMMENT '进货单价',
+                                       `quantity` INT NOT NULL COMMENT '进货数量',
+                                       `subtotal_amount` DECIMAL(12,2) NOT NULL COMMENT '小计金额',
+
+    -- ========== 关联进货建议 ==========
+                                       `suggestion_id` BIGINT DEFAULT NULL COMMENT '关联的进货建议ID',
+
+                                       `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+                                       PRIMARY KEY (`id`),
+                                       KEY `idx_order_id` (`order_id`),
+                                       KEY `idx_product_id` (`product_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='进货单明细表';
