@@ -2,6 +2,14 @@
 node_modules/
 target/
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+
 # 构建输出
 dist/
 build/
@@ -44,3 +52,22 @@ gradle-app.setting
 *.temp
 *.swp
 *~
+
+# Claude Code
+.claude/
+
+# 项目文档（本地保留，不上传GitHub）
+docs/
+Thesis/
+学习路线/
+技术文档/
+
+# Python相关（非核心服务）
+PythonScripts/
+PythonCode/
+PythonNote/
+
+# 其他不需要展示的文件
+Img/
+memory/
+check_category.sql
