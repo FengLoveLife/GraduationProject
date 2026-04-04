@@ -150,8 +150,6 @@ CREATE TABLE `forecast_result` (
 
     -- 核心数据
                                    `predicted_quantity` INT NOT NULL COMMENT '预测销量',
-                                   `actual_quantity` INT DEFAULT NULL COMMENT '实际销量(预测日期过后填入)',
-                                   `error_rate` DECIMAL(5,2) DEFAULT NULL COMMENT '预测误差率(%)',
 
                                    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

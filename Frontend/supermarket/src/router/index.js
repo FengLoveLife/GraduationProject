@@ -94,12 +94,6 @@ const router = createRouter({
               component: () => import('../views/forecast/predict/index.vue'),
               meta: { title: '销量预测' },
             },
-            {
-              path: 'analysis',
-              name: 'ForecastAnalysis',
-              component: () => import('../views/forecast/analysis/index.vue'),
-              meta: { title: '预测分析' },
-            },
           ],
         },
         {

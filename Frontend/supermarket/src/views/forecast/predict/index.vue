@@ -4,11 +4,11 @@
     <div class="page-header">
       <div class="header-left">
         <h2 class="title">销量预测</h2>
-        <p class="subtitle">选择日期和商品，执行智能预测分析</p>
+        <p class="subtitle">基于 LightGBM 机器学习模型，智能预测商品销量</p>
       </div>
       <div class="header-right">
-        <el-button type="primary" :icon="Cpu" @click="handleBatchPredict" :loading="batchLoading">
-          批量预测所有商品
+        <el-button type="primary" :icon="Cpu" @click="handlePredict" :loading="loading">
+          执行预测
         </el-button>
       </div>
     </div>
@@ -22,38 +22,31 @@
         </div>
       </template>
       <el-form :inline="true" :model="predictForm" class="config-form">
-        <el-form-item label="预测日期">
+        <el-form-item label="预测起始日期">
           <el-date-picker
             v-model="predictForm.date"
             type="date"
-            placeholder="选择预测日期"
-            :disabled-date="disabledDate"
+            placeholder="选择预测起始日期"
             value-format="YYYY-MM-DD"
             style="width: 180px"
           />
         </el-form-item>
-        <el-form-item label="天气条件">
-          <el-select v-model="predictForm.weather" placeholder="选择天气" style="width: 140px">
-            <el-option label="晴天" :value="0" />
-            <el-option label="多云" :value="1" />
-            <el-option label="雨天" :value="2" />
-            <el-option label="雪天" :value="3" />
+        <el-form-item label="预测天数">
+          <el-select v-model="predictForm.days" placeholder="选择天数" style="width: 120px">
+            <el-option label="1天" :value="1" />
+            <el-option label="3天" :value="3" />
+            <el-option label="7天" :value="7" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="是否节假日">
-          <el-switch v-model="predictForm.isHoliday" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :icon="Aim" @click="handlePredict" :loading="loading">
-            执行预测
-          </el-button>
         </el-form-item>
       </el-form>
 
       <!-- 预测因子说明 -->
       <div class="factor-tips">
         <el-icon><InfoFilled /></el-icon>
-        <span>预测模型将综合考量：<strong>历史销量</strong>、<strong>星期规律</strong>、<strong>节假日效应</strong>、<strong>天气影响</strong> 等因素</span>
+        <span>
+          预测模型将综合考量：<strong>历史销量</strong>、<strong>星期规律</strong>、<strong>节假日效应</strong>、<strong>天气影响</strong> 等因素。
+          天气和节假日数据将自动从日历因子获取。
+        </span>
       </div>
     </el-card>
 
@@ -107,7 +100,7 @@
         </div>
       </template>
 
-      <el-table :data="filteredResults" stripe style="width: 100%" @row-click="showDetail">
+      <el-table :data="paginatedResults" stripe style="width: 100%" @row-click="showDetail">
         <el-table-column type="index" label="#" width="50" align="center" />
         <el-table-column prop="productName" label="商品名称" min-width="180">
           <template #default="{ row }">
@@ -122,21 +115,14 @@
             <el-tag size="small" effect="plain">{{ row.categoryName }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="forecastDate" label="预测日期" width="110" align="center">
+          <template #default="{ row }">
+            <span class="date-text">{{ row.forecastDate }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="predictedQuantity" label="预测销量" width="100" align="center">
           <template #default="{ row }">
             <span class="predict-value">{{ row.predictedQuantity }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="confidence" label="置信度" width="100" align="center">
-          <template #default="{ row }">
-            <el-progress
-              :percentage="row.confidence"
-              :stroke-width="8"
-              :color="getConfidenceColor(row.confidence)"
-              :show-text="false"
-              style="width: 60px; display: inline-block;"
-            />
-            <span style="margin-left: 8px; font-size: 12px;">{{ row.confidence }}%</span>
           </template>
         </el-table-column>
         <el-table-column prop="currentStock" label="当前库存" width="100" align="center">
@@ -148,7 +134,7 @@
         <el-table-column prop="suggestedPurchase" label="建议进货" width="100" align="center">
           <template #default="{ row }">
             <template v-if="row.suggestedPurchase > 0">
-              <el-tag type="warning" effect="dark" size="small">
+              <el-tag type="danger" effect="dark" size="small">
                 +{{ row.suggestedPurchase }}
               </el-tag>
             </template>
@@ -171,7 +157,7 @@
         <el-pagination
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.size"
-          :page-sizes="[10, 20, 50]"
+          :page-sizes="[10, 20, 50, 100]"
           :total="filteredResults.length"
           layout="total, sizes, prev, pager, next"
         />
@@ -188,13 +174,13 @@
             <el-descriptions-item label="商品名称">{{ currentProduct.productName }}</el-descriptions-item>
             <el-descriptions-item label="商品编码">{{ currentProduct.productCode }}</el-descriptions-item>
             <el-descriptions-item label="商品分类">{{ currentProduct.categoryName }}</el-descriptions-item>
-            <el-descriptions-item label="预测日期">{{ predictForm.date }}</el-descriptions-item>
+            <el-descriptions-item label="预测日期">{{ currentProduct.forecastDate }}</el-descriptions-item>
             <el-descriptions-item label="预测销量">
               <el-tag type="primary" size="large">{{ currentProduct.predictedQuantity }} 件</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="置信度">
-              <el-tag :type="currentProduct.confidence >= 80 ? 'success' : 'warning'" size="large">
-                {{ currentProduct.confidence }}%
+            <el-descriptions-item label="状态">
+              <el-tag :type="getStatusType(currentProduct)" size="large">
+                {{ getStatusText(currentProduct) }}
               </el-tag>
             </el-descriptions-item>
           </el-descriptions>
@@ -235,22 +221,18 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
-import { Cpu, Aim, InfoFilled, Search } from '@element-plus/icons-vue'
-
-const router = useRouter()
+import { Cpu, InfoFilled, Search } from '@element-plus/icons-vue'
+import { runForecast, getForecastResults, getForecastTrend } from '@/api/forecast'
 
 // 加载状态
 const loading = ref(false)
-const batchLoading = ref(false)
 
 // 预测表单
 const predictForm = reactive({
   date: '',
-  weather: 0,
-  isHoliday: false
+  days: 7
 })
 
 // 搜索和筛选
@@ -273,13 +255,13 @@ const detailChartRef = ref(null)
 
 // 统计数据
 const sufficientCount = computed(() =>
-  predictResults.value.filter(item => item.currentStock >= item.predictedQuantity && item.currentStock >= item.safetyStock).length
+  predictResults.value.filter(item => item.stockStatus === 'sufficient').length
 )
 const warningCount = computed(() =>
-  predictResults.value.filter(item => item.currentStock < item.safetyStock && item.currentStock >= item.predictedQuantity).length
+  predictResults.value.filter(item => item.stockStatus === 'warning').length
 )
 const needPurchaseCount = computed(() =>
-  predictResults.value.filter(item => item.suggestedPurchase > 0).length
+  predictResults.value.filter(item => item.stockStatus === 'needPurchase').length
 )
 
 // 筛选后的结果
@@ -288,52 +270,24 @@ const filteredResults = computed(() => {
 
   if (searchKeyword.value) {
     results = results.filter(item =>
-      item.productName.toLowerCase().includes(searchKeyword.value.toLowerCase())
+      item.productName.toLowerCase().includes(searchKeyword.value.toLowerCase()) ||
+      item.productCode.toLowerCase().includes(searchKeyword.value.toLowerCase())
     )
   }
 
   if (filterStatus.value) {
-    if (filterStatus.value === 'sufficient') {
-      results = results.filter(item => item.currentStock >= item.predictedQuantity && item.currentStock >= item.safetyStock)
-    } else if (filterStatus.value === 'warning') {
-      results = results.filter(item => item.currentStock < item.safetyStock && item.currentStock >= item.predictedQuantity)
-    } else if (filterStatus.value === 'needPurchase') {
-      results = results.filter(item => item.suggestedPurchase > 0)
-    }
+    results = results.filter(item => item.stockStatus === filterStatus.value)
   }
 
   return results
 })
 
-// 模拟预测数据
-const mockPredictData = [
-  { productId: 1, productName: '可口可乐500ml', productCode: 'SP001', categoryName: '饮料', predictedQuantity: 45, confidence: 92, currentStock: 30, safetyStock: 20, suggestedPurchase: 35 },
-  { productId: 2, productName: '农夫山泉550ml', productCode: 'SP002', categoryName: '饮料', predictedQuantity: 38, confidence: 88, currentStock: 50, safetyStock: 15, suggestedPurchase: 0 },
-  { productId: 3, productName: '康师傅红烧牛肉面', productCode: 'SP003', categoryName: '方便食品', predictedQuantity: 28, confidence: 85, currentStock: 15, safetyStock: 20, suggestedPurchase: 33 },
-  { productId: 4, productName: '旺旺雪饼', productCode: 'SP004', categoryName: '休闲零食', predictedQuantity: 22, confidence: 79, currentStock: 18, safetyStock: 10, suggestedPurchase: 14 },
-  { productId: 5, productName: '德芙巧克力', productCode: 'SP005', categoryName: '糖果巧克力', predictedQuantity: 15, confidence: 76, currentStock: 8, safetyStock: 10, suggestedPurchase: 17 },
-  { productId: 6, productName: '蒙牛纯牛奶250ml', productCode: 'SP006', categoryName: '乳制品', predictedQuantity: 35, confidence: 91, currentStock: 40, safetyStock: 25, suggestedPurchase: 0 },
-  { productId: 7, productName: '双汇王中王火腿肠', productCode: 'SP007', categoryName: '肉制品', predictedQuantity: 20, confidence: 83, currentStock: 12, safetyStock: 15, suggestedPurchase: 23 },
-  { productId: 8, productName: '乐事薯片原味', productCode: 'SP008', categoryName: '休闲零食', predictedQuantity: 18, confidence: 81, currentStock: 25, safetyStock: 10, suggestedPurchase: 0 },
-  { productId: 9, productName: '奥利奥夹心饼干', productCode: 'SP009', categoryName: '休闲零食', predictedQuantity: 25, confidence: 87, currentStock: 10, safetyStock: 15, suggestedPurchase: 30 },
-  { productId: 10, productName: '加多宝凉茶', productCode: 'SP010', categoryName: '饮料', predictedQuantity: 32, confidence: 89, currentStock: 45, safetyStock: 20, suggestedPurchase: 0 },
-  { productId: 11, productName: '金龙鱼调和油5L', productCode: 'SP011', categoryName: '粮油调味', predictedQuantity: 8, confidence: 75, currentStock: 5, safetyStock: 10, suggestedPurchase: 13 },
-  { productId: 12, productName: '海天酱油500ml', productCode: 'SP012', categoryName: '粮油调味', predictedQuantity: 12, confidence: 82, currentStock: 20, safetyStock: 10, suggestedPurchase: 0 },
-]
-
-// 禁用过去的日期
-const disabledDate = (date) => {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return date < today
-}
-
-// 获取置信度颜色
-const getConfidenceColor = (confidence) => {
-  if (confidence >= 85) return '#67C23A'
-  if (confidence >= 70) return '#E6A23C'
-  return '#F56C6C'
-}
+// 分页后的结果
+const paginatedResults = computed(() => {
+  const start = (pagination.page - 1) * pagination.size
+  const end = start + pagination.size
+  return filteredResults.value.slice(start, end)
+})
 
 // 获取库存状态样式
 const getStockClass = (row) => {
@@ -344,76 +298,59 @@ const getStockClass = (row) => {
 
 // 获取状态类型
 const getStatusType = (row) => {
-  if (row.suggestedPurchase > 0) return 'danger'
-  if (row.currentStock < row.safetyStock) return 'warning'
+  if (row.stockStatus === 'needPurchase') return 'danger'
+  if (row.stockStatus === 'warning') return 'warning'
   return 'success'
 }
 
 // 获取状态文本
 const getStatusText = (row) => {
-  if (row.suggestedPurchase > 0) return '需要补货'
-  if (row.currentStock < row.safetyStock) return '库存紧张'
+  if (row.stockStatus === 'needPurchase') return '需要补货'
+  if (row.stockStatus === 'warning') return '库存紧张'
   return '库存充足'
 }
 
-// 执行预测
+// 执行预测（调用真实 API）
 const handlePredict = async () => {
   if (!predictForm.date) {
-    ElMessage.warning('请选择预测日期')
+    ElMessage.warning('请选择预测起始日期')
     return
   }
 
   loading.value = true
   predictResults.value = []
+  pagination.page = 1
 
   try {
-    // 模拟网络延迟
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // Step 1: 调用后端执行预测
+    const runRes = await runForecast({
+      forecastStart: predictForm.date,
+      forecastDays: predictForm.days
+    })
 
-    // 使用模拟数据，添加随机波动
-    predictResults.value = mockPredictData.map(item => ({
-      ...item,
-      predictedQuantity: Math.round(item.predictedQuantity * (0.9 + Math.random() * 0.2)),
-      confidence: Math.round(item.confidence * (0.95 + Math.random() * 0.1))
-    })).map(item => ({
-      ...item,
-      suggestedPurchase: Math.max(0, item.predictedQuantity + item.safetyStock - item.currentStock)
-    }))
+    if (runRes.code !== 200) {
+      ElMessage.error(runRes.message || '预测执行失败')
+      return
+    }
 
-    ElMessage.success('预测完成')
+    // Step 2: 获取预测结果
+    const resultsRes = await getForecastResults({
+      forecastDate: predictForm.date,
+      days: predictForm.days
+    })
+
+    if (resultsRes.code === 200 && resultsRes.data) {
+      predictResults.value = resultsRes.data
+      ElMessage.success(`预测完成，共 ${resultsRes.data.length} 条预测数据`)
+    } else {
+      ElMessage.warning('暂无预测结果')
+    }
+
   } catch (error) {
-    ElMessage.error('预测失败，请重试')
+    console.error('预测失败:', error)
+    ElMessage.error('预测失败，请检查后端服务是否正常')
   } finally {
     loading.value = false
-  }
-}
-
-// 批量预测
-const handleBatchPredict = async () => {
-  if (!predictForm.date) {
-    ElMessage.warning('请先选择预测日期')
-    return
-  }
-
-  batchLoading.value = true
-
-  try {
-    await new Promise(resolve => setTimeout(resolve, 1500))
-
-    predictResults.value = mockPredictData.map(item => ({
-      ...item,
-      predictedQuantity: Math.round(item.predictedQuantity * (0.9 + Math.random() * 0.2)),
-      confidence: Math.round(item.confidence * (0.95 + Math.random() * 0.1))
-    })).map(item => ({
-      ...item,
-      suggestedPurchase: Math.max(0, item.predictedQuantity + item.safetyStock - item.currentStock)
-    }))
-
-    ElMessage.success('批量预测完成，共预测 ' + predictResults.value.length + ' 个商品')
-  } catch (error) {
-    ElMessage.error('批量预测失败')
-  } finally {
-    batchLoading.value = false
   }
 }
 
@@ -434,9 +371,28 @@ const renderDetailChart = () => {
   const chart = echarts.init(detailChartRef.value)
 
   // 生成模拟趋势数据
-  const dates = ['03-15', '03-16', '03-17', '03-18', '03-19', '03-20', '03-21']
-  const actual = [42, 38, 45, 40, 48, 52, null]
-  const predicted = [40, 41, 43, 42, 50, 49, currentProduct.value.predictedQuantity]
+  const dates = []
+  const today = new Date()
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - i)
+    dates.push(`${d.getMonth() + 1}/${d.getDate()}`)
+  }
+
+  const baseQty = currentProduct.value.predictedQuantity
+  const actual = [
+    baseQty - 5 + Math.floor(Math.random() * 3),
+    baseQty - 2 + Math.floor(Math.random() * 3),
+    baseQty + 3 - Math.floor(Math.random() * 3),
+    baseQty - 1 + Math.floor(Math.random() * 3),
+    baseQty + 5 - Math.floor(Math.random() * 3),
+    baseQty + 2 - Math.floor(Math.random() * 3),
+    null
+  ]
+  const predicted = [
+    baseQty - 3, baseQty, baseQty + 2, baseQty - 2,
+    baseQty + 3, baseQty + 1, currentProduct.value.predictedQuantity
+  ]
 
   const option = {
     tooltip: { trigger: 'axis' },
@@ -469,7 +425,7 @@ const renderDetailChart = () => {
 
 // 初始化
 onMounted(() => {
-  // 设置默认日期为明天
+  // 设置默认日期
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
   predictForm.date = tomorrow.toISOString().split('T')[0]
@@ -507,6 +463,11 @@ onMounted(() => {
   border-radius: 16px;
   border: none;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+
+  :deep(.el-card__header) {
+    border-bottom: 1px solid #f1f5f9;
+    padding: 16px 20px;
+  }
 
   .card-header {
     display: flex;
@@ -563,6 +524,11 @@ onMounted(() => {
   border: none;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
 
+  :deep(.el-card__header) {
+    border-bottom: 1px solid #f1f5f9;
+    padding: 16px 20px;
+  }
+
   .card-header {
     display: flex;
     justify-content: space-between;
@@ -586,6 +552,11 @@ onMounted(() => {
       color: #94a3b8;
       font-family: monospace;
     }
+  }
+
+  .date-text {
+    font-size: 13px;
+    color: #64748b;
   }
 
   .predict-value {

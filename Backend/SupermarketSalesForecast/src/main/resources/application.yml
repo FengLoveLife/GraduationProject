@@ -27,3 +27,7 @@ mybatis-plus:
 jwt:
   secret: "SupermarketSalesForecast-ChangeMe-To-A-Long-Secret-Key-2026"
   expire-ms: 86400000 # Token 过期时间（毫秒），默认 1 天
+
+# Python 预测服务配置
+forecast:
+  python-service-url: http://localhost:8000

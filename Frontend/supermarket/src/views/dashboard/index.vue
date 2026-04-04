@@ -186,11 +186,15 @@ import {
   Money, Document, Warning, ShoppingCart, Top, Bell, Clock,
   TrendCharts, PieChart, Cpu, Operation, Upload, Box
 } from '@element-plus/icons-vue'
+import { getDashboardData } from '@/api/dashboard'
 
 const router = useRouter()
 
 // 用户信息
 const userName = ref('张店长')
+
+// 加载状态
+const loading = ref(false)
 
 // 时间相关
 const greeting = computed(() => {
@@ -213,15 +217,19 @@ const weekDay = computed(() => {
   return days[new Date().getDay()]
 })
 
-// KPI 数据
+// KPI 数据（从后端获取）
 const kpiData = reactive({
-  todaySales: 8520,
-  salesGrowth: 12.5,
-  todayOrders: 42,
-  orderGrowth: 5.3,
-  stockWarning: 8,
-  pendingPurchase: 3
+  todaySales: 0,
+  salesGrowth: 0,
+  todayOrders: 0,
+  orderGrowth: 0,
+  stockWarning: 0,
+  pendingPurchase: 0
 })
+
+// 图表数据（从后端获取）
+const salesTrendData = ref([])
+const categoryPieData = ref([])
 
 // 图表引用
 const salesChartRef = ref(null)
@@ -239,17 +247,52 @@ const goTo = (path) => {
   router.push(path)
 }
 
+// 获取后端数据
+const fetchData = async () => {
+  loading.value = true
+  try {
+    const res = await getDashboardData()
+    if (res.code === 200 && res.data) {
+      // 更新 KPI 数据
+      kpiData.todaySales = res.data.todaySales || 0
+      kpiData.salesGrowth = res.data.salesGrowth || 0
+      kpiData.todayOrders = res.data.todayOrders || 0
+      kpiData.orderGrowth = res.data.orderGrowth || 0
+      kpiData.stockWarning = res.data.stockWarning || 0
+      kpiData.pendingPurchase = res.data.pendingPurchase || 0
+
+      // 更新图表数据
+      salesTrendData.value = res.data.salesTrend || []
+      categoryPieData.value = res.data.categoryPie || []
+
+      // 初始化图表
+      nextTick(() => {
+        initSalesChart()
+        initCategoryChart()
+      })
+    }
+  } catch (error) {
+    console.error('获取首页数据失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
 // 初始化销售趋势图
 const initSalesChart = () => {
   if (!salesChartRef.value) return
   if (!salesChart) salesChart = echarts.init(salesChartRef.value)
 
-  // 10天连续数据：前7天历史 + 后3天预测
-  const dates = ['03-18', '03-19', '03-20', '03-21', '03-22', '03-23', '03-24', '03-25', '03-26', '03-27']
-  // 历史数据（前7天）+ 预测数据（后3天）
-  const salesData = [7200, 7800, 7500, 8200, 8900, 8100, 8520, 9100, 9600, 10200]
-  // 标记哪些是预测数据
-  const isPrediction = [false, false, false, false, false, false, false, true, true, true]
+  const trendData = salesTrendData.value
+  if (trendData.length === 0) return
+
+  const dates = trendData.map(d => d.date)
+  const isPrediction = trendData.map(d => d.isPrediction)
+
+  // 历史数据：预测位置为 null
+  const actualData = trendData.map(d => d.isPrediction ? null : d.actualAmount)
+  // 预测数据：历史位置为 null
+  const predictedData = trendData.map(d => d.isPrediction ? d.predictedAmount : null)
 
   const option = {
     tooltip: {
@@ -260,11 +303,12 @@ const initSalesChart = () => {
       formatter: function(params) {
         const p = params[0]
         const date = p.axisValue
-        const value = p.value
-        const prediction = isPrediction[p.dataIndex]
+        const dataIndex = p.dataIndex
+        const prediction = isPrediction[dataIndex]
+        const value = prediction ? predictedData[dataIndex] : actualData[dataIndex]
         return `<div style="font-weight:600;margin-bottom:4px">${date}</div>
                 <div style="font-size:13px;color:#3B82F6;font-weight:700">
-                  ¥${value.toLocaleString()}${prediction ? ' <span style="color:#67C23A;font-size:12px">(预测)</span>' : ''}
+                  ¥${value ? value.toLocaleString() : 0}${prediction ? ' <span style="color:#67C23A;font-size:12px">(预测)</span>' : ''}
                 </div>`
       }
     },
@@ -296,7 +340,7 @@ const initSalesChart = () => {
       {
         name: '历史销售额',
         type: 'line',
-        data: salesData.map((v, i) => isPrediction[i] ? null : v),
+        data: actualData,
         smooth: true,
         symbol: 'circle',
         symbolSize: 8,
@@ -312,7 +356,7 @@ const initSalesChart = () => {
       {
         name: 'AI预测值',
         type: 'line',
-        data: salesData.map((v, i) => isPrediction[i] ? v : null),
+        data: predictedData,
         smooth: true,
         symbol: 'diamond',
         symbolSize: 10,
@@ -334,6 +378,12 @@ const initSalesChart = () => {
 const initCategoryChart = () => {
   if (!categoryChartRef.value) return
   if (!categoryChart) categoryChart = echarts.init(categoryChartRef.value)
+
+  const pieData = categoryPieData.value
+  if (pieData.length === 0) return
+
+  // 配色方案
+  const colors = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#8B5CF6']
 
   const option = {
     tooltip: {
@@ -361,24 +411,14 @@ const initCategoryChart = () => {
       emphasis: {
         label: { show: true, fontSize: 14, fontWeight: 'bold' }
       },
-      data: [
-        { value: 156, name: '饮料', itemStyle: { color: '#409EFF' } },
-        { value: 98, name: '休闲零食', itemStyle: { color: '#67C23A' } },
-        { value: 72, name: '方便食品', itemStyle: { color: '#E6A23C' } },
-        { value: 45, name: '乳制品', itemStyle: { color: '#F56C6C' } },
-        { value: 38, name: '粮油调味', itemStyle: { color: '#909399' } }
-      ]
+      data: pieData.map((item, index) => ({
+        value: item.value,
+        name: item.name,
+        itemStyle: { color: colors[index % colors.length] }
+      }))
     }]
   }
   categoryChart.setOption(option)
-}
-
-// 初始化图表
-const initCharts = () => {
-  nextTick(() => {
-    initSalesChart()
-    initCategoryChart()
-  })
 }
 
 // 窗口resize
@@ -388,7 +428,7 @@ const handleResize = () => {
 }
 
 onMounted(() => {
-  initCharts()
+  fetchData()
   window.addEventListener('resize', handleResize)
 })
 

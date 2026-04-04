@@ -57,6 +57,12 @@ public class ProductCategory implements Serializable {
     private Integer status;
 
     /**
+     * 补货周期（天）
+     */
+    @TableField("restock_cycle_days")
+    private Integer restockCycleDays;
+
+    /**
      * 创建时间
      */
     @TableField("create_time")

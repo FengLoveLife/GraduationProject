@@ -26,7 +26,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 //先模拟不开启
                 //.addPathPatterns("/apii/**")
                 // 放行登录接口
-                .excludePathPatterns("/api/login");
+                .excludePathPatterns("/api/login")
+                // 开发阶段：放行预测相关接口（方便前端调试）
+                .excludePathPatterns("/api/forecast/**");
     }
 
     @Override

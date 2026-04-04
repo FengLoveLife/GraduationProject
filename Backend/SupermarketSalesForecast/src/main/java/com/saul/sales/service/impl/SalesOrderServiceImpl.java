@@ -1,26 +1,26 @@
 package com.saul.sales.service.impl;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.saul.sales.dto.SalesOrderQueryDTO;
-import com.saul.sales.vo.SalesOrderVO;
-import org.springframework.beans.BeanUtils;
-import org.springframework.util.StringUtils;
-
 import com.alibaba.excel.EasyExcel;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.saul.sales.dto.SalesImportExcelDTO;
+import org.springframework.beans.BeanUtils;
 import com.saul.product.entity.Product;
+import com.saul.product.mapper.ProductMapper;
+import com.saul.sales.dto.SalesImportExcelDTO;
+import com.saul.sales.dto.SalesOrderQueryDTO;
 import com.saul.sales.entity.SalesOrder;
 import com.saul.sales.entity.SalesOrderItem;
-import com.saul.product.mapper.ProductMapper;
 import com.saul.sales.mapper.SalesOrderMapper;
-import com.saul.inventory.service.IInventoryLogService;
 import com.saul.sales.service.ISalesOrderItemService;
 import com.saul.sales.service.ISalesOrderService;
+import com.saul.inventory.service.IInventoryLogService;
+import com.saul.sales.vo.SalesOrderVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 /**
  * 销售订单主表 Service 实现类
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOrder>
@@ -52,7 +53,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
 
         // 2. 构建查询条件
         LambdaQueryWrapper<SalesOrder> wrapper = new LambdaQueryWrapper<>();
-        
+
         // 订单号模糊搜索
         if (StringUtils.hasText(queryDTO.getOrderNo())) {
             wrapper.like(SalesOrder::getOrderNo, queryDTO.getOrderNo().trim());
@@ -79,7 +80,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             BeanUtils.copyProperties(order, vo);
             return vo;
         }).collect(Collectors.toList());
-        
+
         voPage.setRecords(voList);
         return voPage;
     }
@@ -103,7 +104,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                     .map(SalesImportExcelDTO::getProductCode)
                     .distinct()
                     .collect(Collectors.toList());
-            
+
             Map<String, Product> productMap = productMapper.selectList(new LambdaQueryWrapper<Product>()
                     .in(Product::getProductCode, productCodes))
                     .stream()
@@ -124,10 +125,10 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 SalesOrder order = new SalesOrder();
                 order.setOrderNo(orderNo);
                 order.setPaymentType(firstItem.getPaymentType());
-                // 优先使用Excel中的收银机编号，没有则使用登录操作员
+                // 优先使用 Excel 中的收银机编号，没有则使用登录操作员
                 order.setOperator(StringUtils.hasText(firstItem.getOperator())
                         ? firstItem.getOperator() : operator);
-                
+
                 LocalDateTime saleTime = LocalDateTime.parse(firstItem.getSaleTime(), dtf);
                 order.setSaleTime(saleTime);
                 order.setSaleDate(saleTime.toLocalDate());
@@ -137,7 +138,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                         .map(i -> i.getUnitPrice().multiply(new BigDecimal(i.getQuantity())))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 int totalQuantity = items.stream().mapToInt(SalesImportExcelDTO::getQuantity).sum();
-                
+
                 order.setTotalAmount(totalAmount);
                 order.setTotalQuantity(totalQuantity);
                 this.save(order);
@@ -157,33 +158,31 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                     orderItem.setProductCode(product.getProductCode());
                     orderItem.setProductName(product.getName());
                     orderItem.setCategoryId(product.getCategoryId());
-                    // 分类名称映射 (此处简单处理，实际可从 categoryMap 获取)
-                    // orderItem.setCategoryName(...); 
 
                     orderItem.setPurchasePrice(product.getPurchasePrice());
                     orderItem.setUnitPrice(itemDto.getUnitPrice());
                     orderItem.setQuantity(itemDto.getQuantity());
-                    
+
                     // 计算小计金额与利润
                     BigDecimal subtotalAmount = itemDto.getUnitPrice().multiply(new BigDecimal(itemDto.getQuantity()));
                     BigDecimal subtotalProfit = itemDto.getUnitPrice().subtract(product.getPurchasePrice())
                             .multiply(new BigDecimal(itemDto.getQuantity()));
-                    
+
                     orderItem.setSubtotalAmount(subtotalAmount);
                     orderItem.setSubtotalProfit(subtotalProfit);
                     orderItem.setIsPromotion(itemDto.getIsPromotion());
                     orderItem.setSaleDate(order.getSaleDate());
-                    
+
                     orderItems.add(orderItem);
 
                     // 6. 联动库存：扣减库存并记流水 (Type=2 销售出库)
                     inventoryLogService.recordStockChange(
-                            product.getId(), 
-                            -itemDto.getQuantity(), 
-                            2, 
-                            orderNo, 
-                            operator, 
-                            "销售日结Excel导入"
+                            product.getId(),
+                            -itemDto.getQuantity(),
+                            2,
+                            orderNo,
+                            operator,
+                            "销售日结 Excel 导入"
                     );
                 }
                 salesOrderItemService.saveBatch(orderItems);

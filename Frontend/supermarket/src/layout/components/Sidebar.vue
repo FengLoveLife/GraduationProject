@@ -46,9 +46,8 @@ const menu = [
     icon: 'TrendCharts',
     type: 'sub',
     children: [
-      { key: '/forecasting/dashboard', title: '预测看板', icon: 'DataBoard' },
+      { key: '/forecasting/dashboard', title: '预测看板', icon: 'DataLine' },
       { key: '/forecasting/predict', title: '销量预测', icon: 'Aim' },
-      { key: '/forecasting/analysis', title: '预测分析', icon: 'DataLine' },
     ],
   },
   {

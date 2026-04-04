@@ -11,12 +11,6 @@
     <!-- 筛选条件 -->
     <el-card shadow="hover" class="filter-card">
       <el-form :inline="true" :model="filterForm">
-        <el-form-item label="进货单号">
-          <el-input v-model="filterForm.orderNo" placeholder="请输入进货单号" clearable style="width: 180px" />
-        </el-form-item>
-        <el-form-item label="供应商">
-          <el-input v-model="filterForm.supplier" placeholder="请输入供应商名称" clearable style="width: 150px" />
-        </el-form-item>
         <el-form-item label="日期范围">
           <el-date-picker
             v-model="filterForm.dateRange"
@@ -30,9 +24,9 @@
         </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="filterForm.status" placeholder="全部状态" clearable style="width: 120px">
-            <el-option label="待入库" value="pending" />
-            <el-option label="已入库" value="completed" />
-            <el-option label="已取消" value="cancelled" />
+            <el-option label="待确认" :value="0" />
+            <el-option label="已完成" :value="2" />
+            <el-option label="已取消" :value="3" />
           </el-select>
         </el-form-item>
         <el-form-item>
@@ -43,24 +37,29 @@
     </el-card>
 
     <!-- 进货记录表格 -->
-    <el-card shadow="hover" class="records-card">
+    <el-card shadow="hover" class="records-card" v-loading="loading">
       <template #header>
         <div class="card-header">
           <span>进货记录列表</span>
-          <el-button type="primary" link :icon="Download">导出数据</el-button>
+          <el-tag type="info" size="small">共 {{ records.length }} 条记录</el-tag>
         </div>
       </template>
 
-      <el-table :data="records" stripe style="width: 100%">
-        <el-table-column prop="orderNo" label="进货单号" width="150">
+      <!-- 空状态 -->
+      <div v-if="records.length === 0 && !loading" class="empty-state">
+        <el-empty description="暂无进货记录">
+          <template #description>
+            <p>还没有进货单记录</p>
+            <p class="empty-tip">请先在"进货建议"页面生成进货单</p>
+          </template>
+        </el-empty>
+      </div>
+
+      <!-- 表格数据 -->
+      <el-table v-else :data="records" stripe style="width: 100%">
+        <el-table-column prop="orderNo" label="进货单号" width="160">
           <template #default="{ row }">
             <span class="order-no" @click="showDetail(row)">{{ row.orderNo }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="supplier" label="供应商" width="150" />
-        <el-table-column prop="productCount" label="商品种类" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag type="info" effect="plain">{{ row.productCount }} 种</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="totalQuantity" label="总数量" width="100" align="center">
@@ -68,58 +67,54 @@
             {{ row.totalQuantity }} 件
           </template>
         </el-table-column>
-        <el-table-column prop="totalAmount" label="总金额" width="120" align="center">
+        <el-table-column prop="totalAmount" label="总金额" width="130" align="center">
           <template #default="{ row }">
             <span class="amount">¥{{ formatMoney(row.totalAmount) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="160" align="center" />
-        <el-table-column prop="expectedDate" label="预计到货" width="120" align="center" />
+        <el-table-column prop="orderDate" label="下单日期" width="120" align="center" />
+        <el-table-column prop="expectedDate" label="预计到货" width="120" align="center">
+          <template #default="{ row }">
+            {{ row.expectedDate || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="operator" label="操作人" width="100" align="center" />
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)" effect="light">
-              {{ getStatusText(row.status) }}
+              {{ row.statusText }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" align="center" fixed="right">
+        <el-table-column label="操作" width="180" align="center" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="showDetail(row)">详情</el-button>
-            <el-button v-if="row.status === 'pending'" type="success" link size="small" @click="handleConfirm(row)">
+            <el-button v-if="row.status === 0" type="success" link size="small" @click="handleConfirm(row)">
               确认入库
+            </el-button>
+            <el-button v-if="row.status === 0" type="danger" link size="small" @click="handleCancel(row)">
+              取消
             </el-button>
           </template>
         </el-table-column>
       </el-table>
-
-      <!-- 分页 -->
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.size"
-          :page-sizes="[10, 20, 50]"
-          :total="pagination.total"
-          layout="total, sizes, prev, pager, next"
-          @change="fetchRecords"
-        />
-      </div>
     </el-card>
 
     <!-- 详情弹窗 -->
     <el-dialog v-model="detailVisible" :title="'进货单详情 - ' + currentRecord?.orderNo" width="800px" destroy-on-close>
-      <div class="detail-content" v-if="currentRecord">
+      <div class="detail-content" v-if="currentRecord" v-loading="detailLoading">
         <!-- 基本信息 -->
         <div class="detail-section">
           <div class="section-title">基本信息</div>
           <el-descriptions :column="3" border>
             <el-descriptions-item label="进货单号">{{ currentRecord.orderNo }}</el-descriptions-item>
-            <el-descriptions-item label="供应商">{{ currentRecord.supplier }}</el-descriptions-item>
             <el-descriptions-item label="状态">
-              <el-tag :type="getStatusType(currentRecord.status)">{{ getStatusText(currentRecord.status) }}</el-tag>
+              <el-tag :type="getStatusType(currentRecord.status)">{{ currentRecord.statusText }}</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="创建时间">{{ currentRecord.createTime }}</el-descriptions-item>
-            <el-descriptions-item label="预计到货">{{ currentRecord.expectedDate }}</el-descriptions-item>
-            <el-descriptions-item label="创建人">{{ currentRecord.creator }}</el-descriptions-item>
+            <el-descriptions-item label="操作人">{{ currentRecord.operator }}</el-descriptions-item>
+            <el-descriptions-item label="下单日期">{{ currentRecord.orderDate }}</el-descriptions-item>
+            <el-descriptions-item label="预计到货">{{ currentRecord.expectedDate || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="实际到货">{{ currentRecord.actualArrivalDate || '-' }}</el-descriptions-item>
           </el-descriptions>
         </div>
 
@@ -127,14 +122,15 @@
         <div class="detail-section">
           <div class="section-title">商品明细</div>
           <el-table :data="currentRecord.items" stripe size="small">
+            <el-table-column prop="productCode" label="商品编码" width="100" />
             <el-table-column prop="productName" label="商品名称" />
             <el-table-column prop="categoryName" label="分类" width="100" />
             <el-table-column prop="quantity" label="数量" width="80" align="center" />
             <el-table-column prop="purchasePrice" label="进货单价" width="100" align="center">
-              <template #default="{ row }">¥{{ row.purchasePrice.toFixed(2) }}</template>
+              <template #default="{ row }">¥{{ (row.purchasePrice || 0).toFixed(2) }}</template>
             </el-table-column>
             <el-table-column label="小计" width="100" align="center">
-              <template #default="{ row }">¥{{ (row.quantity * row.purchasePrice).toFixed(2) }}</template>
+              <template #default="{ row }">¥{{ ((row.quantity || 0) * (row.purchasePrice || 0)).toFixed(2) }}</template>
             </el-table-column>
           </el-table>
         </div>
@@ -143,115 +139,92 @@
         <div class="detail-section">
           <div class="amount-summary">
             <div class="summary-row">
-              <span>商品种类：</span>
-              <span>{{ currentRecord.productCount }} 种</span>
+              <span>商品种类</span>
+              <span class="value">{{ currentRecord.items?.length || 0 }} 种</span>
             </div>
             <div class="summary-row">
-              <span>商品总数：</span>
-              <span>{{ currentRecord.totalQuantity }} 件</span>
+              <span>商品总数</span>
+              <span class="value">{{ currentRecord.totalQuantity }} 件</span>
             </div>
             <div class="summary-row highlight">
-              <span>进货总额：</span>
-              <span>¥{{ formatMoney(currentRecord.totalAmount) }}</span>
+              <span>进货总额</span>
+              <span class="value">¥{{ formatMoney(currentRecord.totalAmount) }}</span>
             </div>
           </div>
         </div>
+
+        <!-- 备注 -->
+        <div class="detail-section" v-if="currentRecord.remark">
+          <div class="section-title">备注</div>
+          <div class="remark-content">{{ currentRecord.remark }}</div>
+        </div>
       </div>
+
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button v-if="currentRecord?.status === 0" type="success" @click="handleConfirmFromDetail">
+          确认入库
+        </el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Search, Download } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search } from '@element-plus/icons-vue'
+import { getPurchaseOrderList, getPurchaseOrderDetail, confirmOrderArrival, cancelPurchaseOrder } from '@/api/restocking'
+
+// 加载状态
+const loading = ref(false)
+const detailLoading = ref(false)
 
 // 筛选表单
 const filterForm = reactive({
-  orderNo: '',
-  supplier: '',
   dateRange: [],
-  status: ''
+  status: null
 })
 
 // 进货记录
 const records = ref([])
 
-// 分页
-const pagination = reactive({
-  page: 1,
-  size: 10,
-  total: 0
-})
-
 // 详情
 const detailVisible = ref(false)
 const currentRecord = ref(null)
 
-// 模拟数据
-const mockRecords = [
-  {
-    id: 1, orderNo: 'PO202603200001', supplier: '康师傅供应商', productCount: 5, totalQuantity: 156, totalAmount: 4850.00,
-    createTime: '2026-03-20 10:30:00', expectedDate: '2026-03-22', status: 'pending', creator: '张店长',
-    items: [
-      { productName: '康师傅红烧牛肉面', categoryName: '方便食品', quantity: 50, purchasePrice: 3.20 },
-      { productName: '康师傅老坛酸菜面', categoryName: '方便食品', quantity: 40, purchasePrice: 3.20 },
-      { productName: '康师傅香辣牛肉面', categoryName: '方便食品', quantity: 30, purchasePrice: 3.20 },
-      { productName: '康师傅桶装红烧面', categoryName: '方便食品', quantity: 20, purchasePrice: 4.50 },
-      { productName: '康师傅桶装酸菜面', categoryName: '方便食品', quantity: 16, purchasePrice: 4.50 }
-    ]
-  },
-  {
-    id: 2, orderNo: 'PO202603180002', supplier: '可口可乐经销商', productCount: 3, totalQuantity: 120, totalAmount: 1800.00,
-    createTime: '2026-03-18 14:20:00', expectedDate: '2026-03-20', status: 'completed', creator: '张店长',
-    items: [
-      { productName: '可口可乐500ml', categoryName: '饮料', quantity: 50, purchasePrice: 2.50 },
-      { productName: '雪碧500ml', categoryName: '饮料', quantity: 40, purchasePrice: 2.50 },
-      { productName: '芬达500ml', categoryName: '饮料', quantity: 30, purchasePrice: 2.50 }
-    ]
-  },
-  {
-    id: 3, orderNo: 'PO202603150003', supplier: '旺旺食品代理', productCount: 4, totalQuantity: 85, totalAmount: 2450.00,
-    createTime: '2026-03-15 09:15:00', expectedDate: '2026-03-17', status: 'completed', creator: '张店长',
-    items: [
-      { productName: '旺旺雪饼', categoryName: '休闲零食', quantity: 30, purchasePrice: 8.50 },
-      { productName: '旺旺仙贝', categoryName: '休闲零食', quantity: 25, purchasePrice: 7.00 },
-      { productName: '旺旺牛奶糖', categoryName: '糖果', quantity: 15, purchasePrice: 15.00 },
-      { productName: '旺旺浪味仙', categoryName: '休闲零食', quantity: 15, purchasePrice: 12.00 }
-    ]
-  },
-  {
-    id: 4, orderNo: 'PO202603100004', supplier: '蒙牛乳业', productCount: 2, totalQuantity: 60, totalAmount: 2100.00,
-    createTime: '2026-03-10 16:45:00', expectedDate: '2026-03-12', status: 'cancelled', creator: '张店长',
-    items: [
-      { productName: '蒙牛纯牛奶250ml', categoryName: '乳制品', quantity: 40, purchasePrice: 3.00 },
-      { productName: '蒙牛酸奶', categoryName: '乳制品', quantity: 20, purchasePrice: 4.50 }
-    ]
-  }
-]
-
 // 格式化金额
 const formatMoney = (value) => {
-  return Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 // 获取状态类型
 const getStatusType = (status) => {
-  const types = { pending: 'warning', completed: 'success', cancelled: 'info' }
+  const types = { 0: 'warning', 1: 'primary', 2: 'success', 3: 'info' }
   return types[status] || 'info'
-}
-
-// 获取状态文本
-const getStatusText = (status) => {
-  const texts = { pending: '待入库', completed: '已入库', cancelled: '已取消' }
-  return texts[status] || status
 }
 
 // 获取记录
 const fetchRecords = async () => {
-  // 模拟数据
-  records.value = mockRecords
-  pagination.total = mockRecords.length
+  loading.value = true
+
+  try {
+    const params = {
+      status: filterForm.status,
+      startDate: filterForm.dateRange?.[0],
+      endDate: filterForm.dateRange?.[1]
+    }
+
+    const res = await getPurchaseOrderList(params)
+    if (res.code === 200 && res.data) {
+      records.value = res.data
+    }
+  } catch (error) {
+    console.error('获取进货记录失败:', error)
+    ElMessage.error('获取进货记录失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 // 搜索
@@ -261,23 +234,102 @@ const handleSearch = () => {
 
 // 重置
 const handleReset = () => {
-  filterForm.orderNo = ''
-  filterForm.supplier = ''
   filterForm.dateRange = []
-  filterForm.status = ''
+  filterForm.status = null
   fetchRecords()
 }
 
 // 显示详情
-const showDetail = (row) => {
-  currentRecord.value = row
+const showDetail = async (row) => {
   detailVisible.value = true
+  detailLoading.value = true
+
+  try {
+    const res = await getPurchaseOrderDetail(row.id)
+    if (res.code === 200 && res.data) {
+      currentRecord.value = res.data
+    }
+  } catch (error) {
+    console.error('获取详情失败:', error)
+    ElMessage.error('获取详情失败')
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 // 确认入库
-const handleConfirm = (row) => {
-  ElMessage.success(`进货单 ${row.orderNo} 已确认入库`)
-  row.status = 'completed'
+const handleConfirm = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确认进货单 ${row.orderNo} 已到货入库？\n入库后将自动更新库存。`,
+      '确认入库',
+      { type: 'warning' }
+    )
+
+    const res = await confirmOrderArrival(row.id)
+    if (res.code === 200) {
+      ElMessage.success('入库确认成功，库存已更新')
+      await fetchRecords()
+    } else {
+      ElMessage.error(res.message || '操作失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('入库确认失败:', error)
+      ElMessage.error('入库确认失败')
+    }
+  }
+}
+
+// 从详情弹窗确认入库
+const handleConfirmFromDetail = async () => {
+  if (!currentRecord.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      '确认入库后将自动更新库存，是否继续？',
+      '确认入库',
+      { type: 'warning' }
+    )
+
+    const res = await confirmOrderArrival(currentRecord.value.id)
+    if (res.code === 200) {
+      ElMessage.success('入库确认成功，库存已更新')
+      detailVisible.value = false
+      await fetchRecords()
+    } else {
+      ElMessage.error(res.message || '操作失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('入库确认失败:', error)
+      ElMessage.error('入库确认失败')
+    }
+  }
+}
+
+// 取消进货单
+const handleCancel = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要取消进货单 ${row.orderNo} 吗？`,
+      '取消进货单',
+      { type: 'warning' }
+    )
+
+    const res = await cancelPurchaseOrder(row.id)
+    if (res.code === 200) {
+      ElMessage.success('进货单已取消')
+      await fetchRecords()
+    } else {
+      ElMessage.error(res.message || '操作失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('取消失败:', error)
+      ElMessage.error('取消失败')
+    }
+  }
 }
 
 onMounted(() => {
@@ -344,12 +396,17 @@ onMounted(() => {
     font-weight: 600;
     color: #F59E0B;
   }
-}
 
-.pagination-wrapper {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+
+    .empty-tip {
+      font-size: 13px;
+      color: #909399;
+      margin-top: 8px;
+    }
+  }
 }
 
 .detail-content {
@@ -364,6 +421,13 @@ onMounted(() => {
       padding-left: 8px;
       border-left: 3px solid #3B82F6;
     }
+  }
+
+  .remark-content {
+    background: #f8fafc;
+    padding: 12px 16px;
+    border-radius: 8px;
+    color: #64748b;
   }
 
   .amount-summary {
@@ -384,14 +448,15 @@ onMounted(() => {
         color: #64748b;
         margin-bottom: 4px;
       }
-      span:last-child {
+
+      .value {
         font-size: 16px;
         font-weight: 600;
         color: #1e293b;
       }
     }
 
-    .highlight span:last-child {
+    .highlight .value {
       font-size: 20px;
       color: #EF4444;
     }

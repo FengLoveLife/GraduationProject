@@ -16,11 +16,20 @@
     <!-- 汇总统计 -->
     <el-row :gutter="20" class="summary-row">
       <el-col :span="6">
-        <div class="summary-card summary-blue">
-          <div class="summary-icon"><Goods /></div>
+        <div class="summary-card summary-red">
+          <div class="summary-icon"><Warning /></div>
           <div class="summary-content">
-            <div class="summary-value">{{ suggestions.length }}</div>
-            <div class="summary-label">建议进货商品</div>
+            <div class="summary-value">{{ redCount }}</div>
+            <div class="summary-label">红灯（必须补货）</div>
+          </div>
+        </div>
+      </el-col>
+      <el-col :span="6">
+        <div class="summary-card summary-orange">
+          <div class="summary-icon"><AlarmClock /></div>
+          <div class="summary-content">
+            <div class="summary-value">{{ yellowCount }}</div>
+            <div class="summary-label">黄灯（顺带补货）</div>
           </div>
         </div>
       </el-col>
@@ -34,20 +43,11 @@
         </div>
       </el-col>
       <el-col :span="6">
-        <div class="summary-card summary-orange">
+        <div class="summary-card summary-purple">
           <div class="summary-icon"><Money /></div>
           <div class="summary-content">
             <div class="summary-value">¥{{ formatMoney(totalAmount) }}</div>
             <div class="summary-label">预计进货金额</div>
-          </div>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="summary-card summary-purple">
-          <div class="summary-icon"><Calendar /></div>
-          <div class="summary-content">
-            <div class="summary-value">{{ predictDate }}</div>
-            <div class="summary-label">预测日期</div>
           </div>
         </div>
       </el-col>
@@ -56,10 +56,14 @@
     <!-- 算法说明 -->
     <el-alert type="info" :closable="false" show-icon class="algorithm-alert">
       <template #title>
-        <span>进货建议算法：<strong>建议进货量 = 预测销量 + 安全库存 - 当前库存</strong></span>
+        <span>智能进货策略：<strong>红黄绿灯·动态凑单模型</strong></span>
       </template>
       <template #default>
-        系统综合考虑预测销量、安全库存阈值、当前库存状态，自动计算最优进货量
+        <div class="algorithm-detail">
+          <span class="light-item"><el-tag type="danger" size="small">红灯</el-tag> 当前库存 ≤ 安全库存，必须补货</span>
+          <span class="light-item"><el-tag type="warning" size="small">黄灯</el-tag> 库存撑不过周期30%，顺带补货</span>
+          <span class="light-item">目标库存 = 日均销量 × 补货周期 + 安全库存</span>
+        </div>
       </template>
     </el-alert>
 
@@ -72,14 +76,35 @@
             <el-tag type="warning" effect="plain" size="small">共 {{ suggestions.length }} 项</el-tag>
           </div>
           <div class="header-right">
-            <el-button :icon="Refresh" @click="handleRefresh" :loading="loading">刷新建议</el-button>
-            <el-button :icon="Download" @click="handleExport">导出清单</el-button>
+            <el-button type="primary" :icon="Refresh" @click="handleRefresh" :loading="loading">生成进货建议</el-button>
+            <el-button :icon="Download" @click="handleExport" :disabled="suggestions.length === 0">导出清单</el-button>
           </div>
         </div>
       </template>
 
-      <el-table :data="suggestions" stripe style="width: 100%" show-summary :summary-method="getSummary">
+      <!-- 空状态提示 -->
+      <div v-if="suggestions.length === 0" class="empty-state">
+        <el-empty description="暂无进货建议">
+          <template #image>
+            <el-icon :size="80" color="#C0C4CC"><Box /></el-icon>
+          </template>
+          <template #description>
+            <p>当前没有需要进货的商品</p>
+            <p class="empty-tip">点击上方"生成进货建议"按钮，系统将自动分析库存状态</p>
+          </template>
+        </el-empty>
+      </div>
+
+      <!-- 表格数据 -->
+      <el-table v-else :data="suggestions" stripe style="width: 100%" show-summary :summary-method="getSummary">
         <el-table-column type="index" label="#" width="50" align="center" />
+        <el-table-column label="状态" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.lightStatus === 1 ? 'danger' : 'warning'" effect="dark" size="small">
+              {{ row.lightStatus === 1 ? '红灯' : '黄灯' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="productName" label="商品信息" min-width="200">
           <template #default="{ row }">
             <div class="product-cell">
@@ -91,9 +116,9 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="predictedQuantity" label="预测销量" width="100" align="center">
+        <el-table-column prop="dailySales" label="日均销量" width="100" align="center">
           <template #default="{ row }">
-            <el-tag type="primary" effect="plain">{{ row.predictedQuantity }}</el-tag>
+            <span class="daily-sales">{{ row.dailySales ? row.dailySales.toFixed(1) : '-' }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="currentStock" label="当前库存" width="100" align="center">
@@ -102,18 +127,12 @@
           </template>
         </el-table-column>
         <el-table-column prop="safetyStock" label="安全库存" width="90" align="center" />
-        <el-table-column label="缺口" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag type="danger" effect="dark" size="small">
-              -{{ row.predictedQuantity + row.safetyStock - row.currentStock }}
-            </el-tag>
-          </template>
-        </el-table-column>
+        <el-table-column prop="targetStock" label="目标库存" width="90" align="center" />
         <el-table-column label="建议进货量" width="140" align="center">
           <template #default="{ row }">
             <el-input-number
               v-model="row.purchaseQty"
-              :min="row.suggestedPurchase"
+              :min="1"
               :max="999"
               size="small"
               controls-position="right"
@@ -122,12 +141,12 @@
         </el-table-column>
         <el-table-column prop="purchasePrice" label="进货单价" width="100" align="center">
           <template #default="{ row }">
-            ¥{{ row.purchasePrice.toFixed(2) }}
+            ¥{{ (row.purchasePrice || 0).toFixed(2) }}
           </template>
         </el-table-column>
         <el-table-column label="小计" width="110" align="center">
           <template #default="{ row }">
-            <span class="subtotal">¥{{ (row.purchaseQty * row.purchasePrice).toFixed(2) }}</span>
+            <span class="subtotal">¥{{ ((row.purchaseQty || 0) * (row.purchasePrice || 0)).toFixed(2) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="80" align="center" fixed="right">
@@ -197,7 +216,9 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Document, Goods, Box, Money, Calendar, Refresh, Download } from '@element-plus/icons-vue'
+import { Document, Goods, Box, Money, Calendar, Refresh, Download, Warning, AlarmClock } from '@element-plus/icons-vue'
+import { generateSuggestions, getSuggestionList, getSuggestionSummary, ignoreSuggestion } from '@/api/restocking'
+import { createPurchaseOrder } from '@/api/restocking'
 
 const router = useRouter()
 
@@ -206,6 +227,10 @@ const loading = ref(false)
 
 // 预测日期
 const predictDate = ref('')
+
+// 统计数据
+const redCount = ref(0)
+const yellowCount = ref(0)
 
 // 进货建议列表
 const suggestions = ref([])
@@ -220,11 +245,11 @@ const orderForm = reactive({
 
 // 计算属性
 const totalQuantity = computed(() => {
-  return suggestions.value.reduce((sum, item) => sum + item.purchaseQty, 0)
+  return suggestions.value.reduce((sum, item) => sum + (item.purchaseQty || 0), 0)
 })
 
 const totalAmount = computed(() => {
-  return suggestions.value.reduce((sum, item) => sum + item.purchaseQty * item.purchasePrice, 0)
+  return suggestions.value.reduce((sum, item) => sum + (item.purchaseQty || 0) * (item.purchasePrice || 0), 0)
 })
 
 // 格式化金额
@@ -249,45 +274,53 @@ const getSummary = ({ columns, data }) => {
   return sums
 }
 
-// 模拟数据
-const mockSuggestions = [
-  { productId: 1, productName: '可口可乐500ml', productCode: 'SP001', categoryName: '饮料', predictedQuantity: 45, currentStock: 30, safetyStock: 20, suggestedPurchase: 35, purchasePrice: 2.50, purchaseQty: 35 },
-  { productId: 3, productName: '康师傅红烧牛肉面', productCode: 'SP003', categoryName: '方便食品', predictedQuantity: 28, currentStock: 15, safetyStock: 20, suggestedPurchase: 33, purchasePrice: 3.20, purchaseQty: 33 },
-  { productId: 4, productName: '旺旺雪饼', productCode: 'SP004', categoryName: '休闲零食', predictedQuantity: 22, currentStock: 18, safetyStock: 10, suggestedPurchase: 14, purchasePrice: 8.50, purchaseQty: 14 },
-  { productId: 5, productName: '德芙巧克力', productCode: 'SP005', categoryName: '糖果巧克力', predictedQuantity: 15, currentStock: 8, safetyStock: 10, suggestedPurchase: 17, purchasePrice: 12.00, purchaseQty: 17 },
-  { productId: 7, productName: '双汇王中王火腿肠', productCode: 'SP007', categoryName: '肉制品', predictedQuantity: 20, currentStock: 12, safetyStock: 15, suggestedPurchase: 23, purchasePrice: 1.80, purchaseQty: 23 },
-  { productId: 9, productName: '奥利奥夹心饼干', productCode: 'SP009', categoryName: '休闲零食', predictedQuantity: 25, currentStock: 10, safetyStock: 15, suggestedPurchase: 30, purchasePrice: 9.50, purchaseQty: 30 },
-  { productId: 11, productName: '金龙鱼调和油5L', productCode: 'SP011', categoryName: '粮油调味', predictedQuantity: 8, currentStock: 5, safetyStock: 10, suggestedPurchase: 13, purchasePrice: 65.00, purchaseQty: 13 },
-  { productId: 13, productName: '维达抽纸', productCode: 'SP013', categoryName: '日用品', predictedQuantity: 18, currentStock: 6, safetyStock: 12, suggestedPurchase: 24, purchasePrice: 5.80, purchaseQty: 24 },
-]
-
 // 获取进货建议
 const fetchSuggestions = async () => {
   loading.value = true
 
   try {
-    await new Promise(resolve => setTimeout(resolve, 600))
+    // 并行获取列表和汇总
+    const [listRes, summaryRes] = await Promise.all([
+      getSuggestionList({ status: 0 }),
+      getSuggestionSummary()
+    ])
 
-    suggestions.value = mockSuggestions.map(item => ({
-      ...item,
-      purchaseQty: item.suggestedPurchase
-    }))
+    if (listRes.code === 200 && listRes.data) {
+      suggestions.value = listRes.data.map(item => ({
+        ...item,
+        purchaseQty: item.finalQuantity || item.suggestedQuantity
+      }))
+    }
 
-    // 设置预测日期
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    predictDate.value = `${tomorrow.getMonth() + 1}/${tomorrow.getDate()}`
+    if (summaryRes.code === 200 && summaryRes.data) {
+      redCount.value = summaryRes.data.redCount || 0
+      yellowCount.value = summaryRes.data.yellowCount || 0
+    }
 
   } catch (error) {
+    console.error('获取进货建议失败:', error)
     ElMessage.error('获取进货建议失败')
   } finally {
     loading.value = false
   }
 }
 
-// 刷新建议
-const handleRefresh = () => {
-  fetchSuggestions()
+// 刷新建议（重新生成）
+const handleRefresh = async () => {
+  loading.value = true
+
+  try {
+    const res = await generateSuggestions()
+    if (res.code === 200) {
+      ElMessage.success(res.data.message || '进货建议已更新')
+      await fetchSuggestions()
+    }
+  } catch (error) {
+    console.error('生成进货建议失败:', error)
+    ElMessage.error('生成进货建议失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 // 导出清单
@@ -295,10 +328,24 @@ const handleExport = () => {
   ElMessage.success('进货清单已导出')
 }
 
-// 移除商品
-const handleRemove = (index) => {
-  suggestions.value.splice(index, 1)
-  ElMessage.success('已移除该商品')
+// 移除商品（忽略建议）
+const handleRemove = async (index) => {
+  const item = suggestions.value[index]
+  try {
+    const res = await ignoreSuggestion(item.id)
+    if (res.code === 200) {
+      suggestions.value.splice(index, 1)
+      // 更新统计
+      if (item.lightStatus === 1) {
+        redCount.value--
+      } else {
+        yellowCount.value--
+      }
+      ElMessage.success('已忽略该商品')
+    }
+  } catch (error) {
+    ElMessage.error('操作失败')
+  }
 }
 
 // 生成进货单
@@ -318,16 +365,37 @@ const handleGenerateOrder = () => {
 
 // 确认生成进货单
 const confirmGenerateOrder = async () => {
+  if (suggestions.value.length === 0) {
+    ElMessage.warning('暂无需要进货的商品')
+    return
+  }
+
   try {
-    await new Promise(resolve => setTimeout(resolve, 800))
+    // 构建请求参数
+    const orderData = {
+      expectedDate: orderForm.expectedDate,
+      remark: orderForm.remark,
+      items: suggestions.value.map(item => ({
+        suggestionId: item.id,
+        productId: item.productId,
+        quantity: item.purchaseQty
+      }))
+    }
 
-    ElMessage.success('进货单生成成功！')
-    orderDialogVisible.value = false
+    const res = await createPurchaseOrder(orderData)
 
-    // 清空列表或跳转
-    suggestions.value = []
+    if (res.code === 200) {
+      ElMessage.success(res.data.message || '进货单创建成功！')
+      orderDialogVisible.value = false
+
+      // 刷新列表
+      await fetchSuggestions()
+    } else {
+      ElMessage.error(res.message || '创建失败')
+    }
 
   } catch (error) {
+    console.error('生成进货单失败:', error)
     ElMessage.error('生成进货单失败')
   }
 }
@@ -401,12 +469,27 @@ onMounted(() => {
     &.summary-green { background: linear-gradient(135deg, #10B981, #34D399); }
     &.summary-orange { background: linear-gradient(135deg, #F59E0B, #FBBF24); }
     &.summary-purple { background: linear-gradient(135deg, #8B5CF6, #A78BFA); }
+    &.summary-red { background: linear-gradient(135deg, #EF4444, #F87171); }
   }
 }
 
 .algorithm-alert {
   margin-bottom: 20px;
   border-radius: 12px;
+
+  .algorithm-detail {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+
+    .light-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+  }
 }
 
 .suggestion-card {
@@ -435,6 +518,17 @@ onMounted(() => {
     .header-right {
       display: flex;
       gap: 10px;
+    }
+  }
+
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+
+    .empty-tip {
+      font-size: 13px;
+      color: #909399;
+      margin-top: 8px;
     }
   }
 
