@@ -78,4 +78,32 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
             "GROUP BY categoryName " +
             "ORDER BY totalQuantity DESC")
     List<Map<String, Object>> getCategoryQuantityByDate(@Param("date") String date);
+
+    /**
+     * 查询商品销售汇总（总销量、总销售额、总毛利、首次/最近销售日期、销售天数）
+     */
+    @Select("SELECT " +
+            "IFNULL(SUM(quantity), 0) as totalQuantity, " +
+            "IFNULL(SUM(subtotal_amount), 0) as totalAmount, " +
+            "IFNULL(SUM(subtotal_profit), 0) as totalProfit, " +
+            "MIN(sale_date) as firstSaleDate, " +
+            "MAX(sale_date) as lastSaleDate, " +
+            "COUNT(DISTINCT sale_date) as saleDays, " +
+            "IFNULL(AVG(unit_price), 0) as avgUnitPrice " +
+            "FROM sales_order_item " +
+            "WHERE product_id = #{productId}")
+    Map<String, Object> getProductSalesSummary(@Param("productId") Long productId);
+
+    /**
+     * 查询商品近N天的销售趋势（按日期汇总）
+     */
+    @Select("SELECT DATE(sale_date) as saleDate, " +
+            "SUM(quantity) as quantity, " +
+            "SUM(subtotal_amount) as amount " +
+            "FROM sales_order_item " +
+            "WHERE product_id = #{productId} " +
+            "AND sale_date >= #{startDate} " +
+            "GROUP BY DATE(sale_date) " +
+            "ORDER BY DATE(sale_date)")
+    List<Map<String, Object>> getProductRecentTrend(@Param("productId") Long productId, @Param("startDate") String startDate);
 }

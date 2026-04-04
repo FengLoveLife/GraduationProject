@@ -7,13 +7,7 @@
           <span class="greeting">{{ greeting }}</span>
           <span class="name">，{{ userName }}</span>
         </h1>
-        <p class="welcome-subtitle">{{ todayStr }} · {{ weekDay }} · 天气晴朗</p>
-      </div>
-      <div class="welcome-right">
-        <div class="system-status">
-          <span class="status-dot"></span>
-          <span>系统运行正常</span>
-        </div>
+        <p class="welcome-subtitle">{{ todayStr }} · {{ weekDay }}</p>
       </div>
     </div>
 
@@ -99,10 +93,6 @@
                   <el-icon class="header-icon"><TrendCharts /></el-icon>
                   <span>近7天销售额 vs AI预测趋势</span>
                 </div>
-                <el-tag type="success" effect="plain" size="small">
-                  <el-icon><Cpu /></el-icon>
-                  LightGBM 预测
-                </el-tag>
               </div>
             </template>
             <div ref="salesChartRef" class="chart-box"></div>
@@ -187,11 +177,12 @@ import {
   TrendCharts, PieChart, Cpu, Operation, Upload, Box
 } from '@element-plus/icons-vue'
 import { getDashboardData } from '@/api/dashboard'
+import { getProfile } from '@/api/user'
 
 const router = useRouter()
 
 // 用户信息
-const userName = ref('张店长')
+const userName = ref('')
 
 // 加载状态
 const loading = ref(false)
@@ -289,10 +280,20 @@ const initSalesChart = () => {
   const dates = trendData.map(d => d.date)
   const isPrediction = trendData.map(d => d.isPrediction)
 
+  // 找到历史数据的最后一个索引（交界点）
+  let lastActualIndex = -1
+  for (let i = trendData.length - 1; i >= 0; i--) {
+    if (!trendData[i].isPrediction) { lastActualIndex = i; break }
+  }
+
   // 历史数据：预测位置为 null
   const actualData = trendData.map(d => d.isPrediction ? null : d.actualAmount)
-  // 预测数据：历史位置为 null
-  const predictedData = trendData.map(d => d.isPrediction ? d.predictedAmount : null)
+  // 预测数据：历史位置为 null，但在交界点共享历史最后一天的值，使折线连贯
+  const predictedData = trendData.map((d, i) => {
+    if (d.isPrediction) return d.predictedAmount
+    if (i === lastActualIndex) return d.actualAmount  // 交界点：让预测线从这里开始
+    return null
+  })
 
   const option = {
     tooltip: {
@@ -386,11 +387,7 @@ const initCategoryChart = () => {
   const colors = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#8B5CF6']
 
   const option = {
-    tooltip: {
-      trigger: 'item',
-      confine: true,
-      formatter: '{b}: {c}件 ({d}%)'
-    },
+    tooltip: { show: false },
     legend: {
       orient: 'vertical',
       right: 10,
@@ -401,15 +398,27 @@ const initCategoryChart = () => {
       type: 'pie',
       radius: ['45%', '70%'],
       center: ['35%', '50%'],
-      avoidLabelOverlap: false,
+      avoidLabelOverlap: true,
       itemStyle: {
         borderRadius: 8,
         borderColor: '#fff',
         borderWidth: 2
       },
-      label: { show: false },
+      label: {
+        show: false,
+        position: 'center'
+      },
+      labelLine: { show: false },
       emphasis: {
-        label: { show: true, fontSize: 14, fontWeight: 'bold' }
+        label: {
+          show: true,
+          formatter: '{b}\n{c}件 | {d}%',
+          fontSize: 14,
+          fontWeight: 'bold',
+          color: '#1e293b',
+          lineHeight: 22
+        },
+        scaleSize: 6
       },
       data: pieData.map((item, index) => ({
         value: item.value,
@@ -427,7 +436,20 @@ const handleResize = () => {
   categoryChart?.resize()
 }
 
+// 获取用户信息
+const fetchUserInfo = async () => {
+  try {
+    const res = await getProfile()
+    if (res.code === 200 && res.data) {
+      userName.value = res.data.realName || res.data.username || '店长'
+    }
+  } catch (error) {
+    userName.value = '店长'
+  }
+}
+
 onMounted(() => {
+  fetchUserInfo()
   fetchData()
   window.addEventListener('resize', handleResize)
 })
@@ -474,30 +496,6 @@ onBeforeUnmount(() => {
     margin: 0;
   }
 
-  .system-status {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    background: rgba(16, 185, 129, 0.1);
-    border-radius: 20px;
-    color: #10B981;
-    font-size: 13px;
-    font-weight: 500;
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      background: #10B981;
-      border-radius: 50%;
-      animation: pulse 2s infinite;
-    }
-  }
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
 }
 
 // KPI 卡片

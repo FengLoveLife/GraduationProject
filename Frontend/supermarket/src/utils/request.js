@@ -46,10 +46,9 @@ request.interceptors.response.use(
     }
   },
   (error) => {
-    const msg =
-      error?.response?.data?.msg ||
-      error?.message ||
-      '网络异常，请稍后重试'
+    // 优先使用后端返回的错误信息
+    const data = error?.response?.data
+    const msg = data?.msg || error?.message || '网络异常，请稍后重试'
     ElMessage.error(msg)
     return Promise.reject(error)
   },

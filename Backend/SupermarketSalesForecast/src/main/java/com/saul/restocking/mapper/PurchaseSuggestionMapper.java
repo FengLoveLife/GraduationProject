@@ -83,6 +83,18 @@ public interface PurchaseSuggestionMapper extends BaseMapper<PurchaseSuggestion>
     List<Map<String, Object>> getProductsByCategory(@Param("categoryId") Long categoryId);
 
     /**
+     * 查询所有非红灯的上架商品（用于独立扫描黄灯）
+     * @return 库存 > 安全库存的上架商品列表
+     */
+    @Select("SELECT p.id as productId, p.product_code as productCode, p.name as productName, " +
+            "p.category_id as categoryId, pc.name as categoryName, pc.restock_cycle_days as restockCycleDays, " +
+            "p.stock as currentStock, p.safety_stock as safetyStock, p.purchase_price as purchasePrice " +
+            "FROM product p " +
+            "LEFT JOIN product_category pc ON p.category_id = pc.id " +
+            "WHERE p.status = 1 AND p.stock > p.safety_stock")
+    List<Map<String, Object>> getNonRedLightProducts();
+
+    /**
      * 清空待处理的进货建议（重新生成前）
      */
     @Delete("DELETE FROM purchase_suggestion WHERE status = 0")

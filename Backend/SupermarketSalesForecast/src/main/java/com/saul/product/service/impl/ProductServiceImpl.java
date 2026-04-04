@@ -9,16 +9,25 @@ import com.saul.product.dto.ProductUpdateDTO;
 import com.saul.product.entity.Product;
 import com.saul.product.mapper.ProductMapper;
 import com.saul.product.service.IProductService;
+import com.saul.product.vo.ProductSalesSummaryVO;
 import com.saul.product.vo.ProductVO;
+import com.saul.restocking.entity.PurchaseOrderItem;
+import com.saul.restocking.mapper.PurchaseOrderItemMapper;
+import com.saul.sales.entity.SalesOrderItem;
+import com.saul.sales.mapper.SalesOrderItemMapper;
 import com.alibaba.excel.EasyExcel;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -29,6 +38,12 @@ import java.util.stream.Collectors;
  */
 @Service
 public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> implements IProductService {
+
+    @Autowired
+    private SalesOrderItemMapper salesOrderItemMapper;
+
+    @Autowired
+    private PurchaseOrderItemMapper purchaseOrderItemMapper;
 
     @Override
     public Page<ProductVO> queryPage(ProductQueryDTO queryDTO) {
@@ -243,13 +258,23 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
     @Override
     public void deleteProduct(Long id) {
-        // TODO: 关联校验 1 - 查询【销售流水表/订单详情表】是否包含该商品
-        // 如果 count > 0，抛出异常："该商品已有销售记录，严禁删除！建议将其状态修改为下架。"
+        // 关联校验 1：是否有销售记录
+        Long salesCount = salesOrderItemMapper.selectCount(
+                new LambdaQueryWrapper<SalesOrderItem>().eq(SalesOrderItem::getProductId, id)
+        );
+        if (salesCount != null && salesCount > 0) {
+            throw new RuntimeException("该商品已有销售记录，严禁删除！建议将其状态修改为下架。");
+        }
 
-        // TODO: 关联校验 2 - 查询【进货单明细表】是否包含该商品
-        // 如果 count > 0，抛出异常："该商品存在进货历史，无法删除！"
+        // 关联校验 2：是否有进货单明细
+        Long purchaseCount = purchaseOrderItemMapper.selectCount(
+                new LambdaQueryWrapper<PurchaseOrderItem>().eq(PurchaseOrderItem::getProductId, id)
+        );
+        if (purchaseCount != null && purchaseCount > 0) {
+            throw new RuntimeException("该商品存在进货历史，无法删除！");
+        }
 
-        // 执行物理删除（仅在通过上述校验后）
+        // 通过校验后执行物理删除
         boolean ok = this.removeById(id);
         if (!ok) {
             throw new RuntimeException("删除商品失败");
@@ -263,6 +288,122 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         if (p == null) return null;
         ProductVO vo = new ProductVO();
         BeanUtils.copyProperties(p, vo);
+        return vo;
+    }
+
+    @Override
+    public ProductSalesSummaryVO getSalesSummary(Long productId) {
+        // 1. 查询商品基础销售汇总
+        Map<String, Object> summary = salesOrderItemMapper.getProductSalesSummary(productId);
+
+        ProductSalesSummaryVO vo = new ProductSalesSummaryVO();
+
+        // 2. 填充基础汇总数据
+        Integer totalQuantity = summary.get("totalQuantity") != null
+                ? ((Number) summary.get("totalQuantity")).intValue() : 0;
+        BigDecimal totalAmount = summary.get("totalAmount") != null
+                ? new BigDecimal(summary.get("totalAmount").toString()) : BigDecimal.ZERO;
+        BigDecimal totalProfit = summary.get("totalProfit") != null
+                ? new BigDecimal(summary.get("totalProfit").toString()) : BigDecimal.ZERO;
+        Integer saleDays = summary.get("saleDays") != null
+                ? ((Number) summary.get("saleDays")).intValue() : 0;
+        BigDecimal avgUnitPrice = summary.get("avgUnitPrice") != null
+                ? new BigDecimal(summary.get("avgUnitPrice").toString()) : BigDecimal.ZERO;
+
+        vo.setTotalQuantity(totalQuantity);
+        vo.setTotalAmount(totalAmount);
+        vo.setTotalProfit(totalProfit);
+        vo.setAvgUnitPrice(avgUnitPrice.setScale(2, RoundingMode.HALF_UP));
+        vo.setSaleDays(saleDays);
+
+        // 3. 计算毛利率
+        if (totalAmount.compareTo(BigDecimal.ZERO) > 0) {
+            vo.setProfitRate(totalProfit.divide(totalAmount, 4, RoundingMode.HALF_UP));
+        } else {
+            vo.setProfitRate(BigDecimal.ZERO);
+        }
+
+        // 4. 时间维度
+        if (summary.get("firstSaleDate") != null) {
+            vo.setFirstSaleDate(((java.sql.Date) summary.get("firstSaleDate")).toLocalDate());
+        }
+        if (summary.get("lastSaleDate") != null) {
+            vo.setLastSaleDate(((java.sql.Date) summary.get("lastSaleDate")).toLocalDate());
+        }
+
+        // 5. 日均数据
+        if (saleDays > 0) {
+            vo.setDailyAvgQuantity(new BigDecimal(totalQuantity)
+                    .divide(new BigDecimal(saleDays), 1, RoundingMode.HALF_UP));
+            vo.setDailyAvgAmount(totalAmount.divide(new BigDecimal(saleDays), 2, RoundingMode.HALF_UP));
+        } else {
+            vo.setDailyAvgQuantity(BigDecimal.ZERO);
+            vo.setDailyAvgAmount(BigDecimal.ZERO);
+        }
+
+        // 6. 近30天趋势
+        LocalDate today = LocalDate.now();
+        LocalDate startDate = today.minusDays(29);
+        List<Map<String, Object>> recentTrend = salesOrderItemMapper.getProductRecentTrend(productId, startDate.toString());
+
+        // 构建近30天完整日期列表（填补无销售日期）
+        List<String> recentDates = new ArrayList<>();
+        List<Integer> recentQuantities = new ArrayList<>();
+        List<BigDecimal> recentAmounts = new ArrayList<>();
+
+        Map<String, Map<String, Object>> trendMap = recentTrend.stream()
+                .collect(Collectors.toMap(
+                        m -> m.get("saleDate").toString(),
+                        m -> m
+                ));
+
+        DateTimeFormatter displayFormatter = DateTimeFormatter.ofPattern("MM-dd");
+        int recent30TotalQty = 0;
+        BigDecimal recent30TotalAmount = BigDecimal.ZERO;
+
+        for (int i = 0; i < 30; i++) {
+            LocalDate date = startDate.plusDays(i);
+            String dateStr = date.toString();
+            recentDates.add(date.format(displayFormatter));
+
+            if (trendMap.containsKey(dateStr)) {
+                Map<String, Object> dayData = trendMap.get(dateStr);
+                int qty = ((Number) dayData.get("quantity")).intValue();
+                BigDecimal amt = new BigDecimal(dayData.get("amount").toString());
+                recentQuantities.add(qty);
+                recentAmounts.add(amt);
+                recent30TotalQty += qty;
+                recent30TotalAmount = recent30TotalAmount.add(amt);
+            } else {
+                recentQuantities.add(0);
+                recentAmounts.add(BigDecimal.ZERO);
+            }
+        }
+
+        vo.setRecentDates(recentDates);
+        vo.setRecentQuantities(recentQuantities);
+        vo.setRecentAmounts(recentAmounts);
+        vo.setRecent30Quantity(recent30TotalQty);
+        vo.setRecent30Amount(recent30TotalAmount);
+
+        // 7. 近30天 vs 历史日均对比
+        if (saleDays > 0 && totalQuantity > 0) {
+            BigDecimal historyDailyAvg = new BigDecimal(totalQuantity)
+                    .divide(new BigDecimal(saleDays), 2, RoundingMode.HALF_UP);
+            BigDecimal recentDailyAvg = new BigDecimal(recent30TotalQty)
+                    .divide(new BigDecimal(30), 2, RoundingMode.HALF_UP);
+
+            if (historyDailyAvg.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal growth = recentDailyAvg.subtract(historyDailyAvg)
+                        .divide(historyDailyAvg, 4, RoundingMode.HALF_UP);
+                vo.setRecentVsHistoryRate(growth);
+            } else {
+                vo.setRecentVsHistoryRate(BigDecimal.ZERO);
+            }
+        } else {
+            vo.setRecentVsHistoryRate(BigDecimal.ZERO);
+        }
+
         return vo;
     }
 }

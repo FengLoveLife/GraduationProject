@@ -1,8 +1,9 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, nextTick, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Plus, EditPen, Delete, Warning, Picture, Download, QuestionFilled } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus, EditPen, Delete, Warning, Picture, Download, QuestionFilled, TrendCharts, Goods, Money, DataAnalysis, Top, Bottom } from '@element-plus/icons-vue'
 import request from '../../../utils/request'
+import * as echarts from 'echarts'
 
 // --- 状态定义 ---
 const loading = ref(false)
@@ -74,6 +75,14 @@ const rules = {
   salePrice: [{ required: true, message: '请输入零售价', trigger: 'blur' }],
   stock: [{ required: true, message: '请输入初始库存', trigger: 'blur' }]
 }
+
+// ========== 销售概况相关 ==========
+const summaryVisible = ref(false)
+const summaryLoading = ref(false)
+const summaryData = ref(null)
+const currentProduct = ref(null)
+const trendChartRef = ref(null)
+let trendChart = null
 
 // --- 接口调用 ---
 
@@ -151,7 +160,6 @@ async function handleEdit(row) {
   try {
     const res = await request.get(`/product/${row.id}`)
     const data = res.data
-    // 使用解构赋值回显数据
     Object.assign(formData, data)
     dialogVisible.value = true
   } catch (e) {
@@ -172,8 +180,7 @@ function handleDelete(row) {
       ElMessage.success('删除成功')
       fetchProductPage()
     } catch (e) {
-      const msg = e?.msg || e?.message || '删除失败'
-      ElMessage.error(msg)
+      // 错误已由拦截器统一处理，此处无需重复弹窗
     } finally {
       loading.value = false
     }
@@ -266,7 +273,6 @@ async function handleExport() {
       responseType: 'blob'
     })
 
-    // 处理文件流下载
     const blob = res.data
     const link = document.createElement('a')
     link.href = window.URL.createObjectURL(blob)
@@ -284,9 +290,158 @@ async function handleExport() {
   }
 }
 
+// ========== 销售概况 ==========
+
+async function handleViewSummary(row) {
+  currentProduct.value = row
+  summaryVisible.value = true
+  summaryLoading.value = true
+  summaryData.value = null
+
+  try {
+    const res = await request.get(`/product/${row.id}/sales-summary`)
+    summaryData.value = res.data
+
+    // 渲染趋势图
+    nextTick(() => {
+      renderTrendChart()
+    })
+  } catch (e) {
+    console.error('获取销售概况失败', e)
+    ElMessage.error('获取销售概况失败')
+  } finally {
+    summaryLoading.value = false
+  }
+}
+
+function renderTrendChart() {
+  if (!trendChartRef.value || !summaryData.value) return
+
+  if (trendChart) {
+    trendChart.dispose()
+  }
+
+  trendChart = echarts.init(trendChartRef.value)
+
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      borderColor: '#e0e0e0',
+      borderWidth: 1,
+      textStyle: { color: '#333', fontSize: 12 },
+      formatter: (params) => {
+        const date = params[0].axisValue
+        const qty = params[0].value
+        const amount = params[1]?.value || 0
+        return `<div style="font-weight:600;margin-bottom:4px;">${date}</div>
+                <div>销量：<span style="color:#409EFF;font-weight:600;">${qty}</span> 件</div>
+                <div>销售额：<span style="color:#67C23A;font-weight:600;">¥${amount.toFixed(2)}</span></div>`
+      }
+    },
+    legend: {
+      data: ['销量', '销售额'],
+      top: 0,
+      right: 0,
+      textStyle: { fontSize: 11 }
+    },
+    grid: {
+      left: '3%',
+      right: '4%',
+      bottom: '3%',
+      top: 35,
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: summaryData.value.recentDates || [],
+      axisLabel: {
+        fontSize: 10,
+        color: '#909399',
+        interval: 4
+      },
+      axisLine: { lineStyle: { color: '#dcdfe6' } }
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: '销量',
+        nameTextStyle: { fontSize: 10, color: '#909399' },
+        axisLabel: { fontSize: 10, color: '#909399' },
+        splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } }
+      },
+      {
+        type: 'value',
+        name: '销售额',
+        nameTextStyle: { fontSize: 10, color: '#909399' },
+        axisLabel: { fontSize: 10, color: '#909399', formatter: '¥{value}' },
+        splitLine: { show: false }
+      }
+    ],
+    series: [
+      {
+        name: '销量',
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 2, color: '#409EFF' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(64, 158, 255, 0.25)' },
+            { offset: 1, color: 'rgba(64, 158, 255, 0.02)' }
+          ])
+        },
+        data: summaryData.value.recentQuantities || []
+      },
+      {
+        name: '销售额',
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        yAxisIndex: 1,
+        lineStyle: { width: 2, color: '#67C23A', type: 'dashed' },
+        data: summaryData.value.recentAmounts || []
+      }
+    ]
+  }
+
+  trendChart.setOption(option)
+}
+
+function formatNumber(num) {
+  if (num === null || num === undefined) return '0'
+  return Number(num).toLocaleString('zh-CN')
+}
+
+function formatPercent(rate) {
+  if (rate === null || rate === undefined) return '0.00%'
+  return (Number(rate) * 100).toFixed(2) + '%'
+}
+
+function formatDate(date) {
+  if (!date) return '-'
+  return date
+}
+
+function closeSummaryDialog() {
+  summaryVisible.value = false
+  if (trendChart) {
+    trendChart.dispose()
+    trendChart = null
+  }
+}
+
 onMounted(() => {
   fetchCategoryTree()
   fetchProductPage()
+})
+
+onUnmounted(() => {
+  if (trendChart) {
+    trendChart.dispose()
+    trendChart = null
+  }
 })
 </script>
 
@@ -414,8 +569,9 @@ onMounted(() => {
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="150" align="center" fixed="right">
+        <el-table-column label="操作" width="200" align="center" fixed="right">
           <template #default="{ row }">
+            <el-button link type="warning" :icon="TrendCharts" @click="handleViewSummary(row)">销售概况</el-button>
             <el-button link type="primary" :icon="EditPen" @click="handleEdit(row)">编辑</el-button>
             <el-button link type="danger" :icon="Delete" @click="handleDelete(row)">删除</el-button>
           </template>
@@ -498,7 +654,7 @@ onMounted(() => {
               </div>
             </el-form-item>
           </el-col>
-          
+
           <!-- 右列 -->
           <el-col :span="12">
             <el-form-item label="商品编码" prop="productCode">
@@ -588,6 +744,140 @@ onMounted(() => {
             确认导出
           </el-button>
         </div>
+      </template>
+    </el-dialog>
+
+    <!-- 销售概况弹窗 -->
+    <el-dialog
+      v-model="summaryVisible"
+      :title="`销售概况 - ${currentProduct?.name || ''}`"
+      width="800px"
+      destroy-on-close
+      :close-on-click-modal="false"
+      class="summary-dialog"
+      @closed="closeSummaryDialog"
+    >
+      <div v-loading="summaryLoading" class="summary-content">
+        <template v-if="summaryData">
+          <!-- 无销售数据提示 -->
+          <div v-if="summaryData.totalQuantity === 0" class="no-data-tip">
+            <el-empty description="该商品暂无销售记录" :image-size="120" />
+          </div>
+
+          <template v-else>
+            <!-- KPI 卡片区 -->
+            <div class="kpi-section">
+              <div class="kpi-grid">
+                <div class="kpi-card kpi-blue">
+                  <div class="kpi-icon"><el-icon><Goods /></el-icon></div>
+                  <div class="kpi-body">
+                    <div class="kpi-value">{{ formatNumber(summaryData.totalQuantity) }}</div>
+                    <div class="kpi-label">累计销量（件）</div>
+                  </div>
+                </div>
+                <div class="kpi-card kpi-green">
+                  <div class="kpi-icon"><el-icon><Money /></el-icon></div>
+                  <div class="kpi-body">
+                    <div class="kpi-value">¥{{ formatNumber(summaryData.totalAmount) }}</div>
+                    <div class="kpi-label">累计销售额</div>
+                  </div>
+                </div>
+                <div class="kpi-card kpi-orange">
+                  <div class="kpi-icon"><el-icon><TrendCharts /></el-icon></div>
+                  <div class="kpi-body">
+                    <div class="kpi-value">¥{{ formatNumber(summaryData.totalProfit) }}</div>
+                    <div class="kpi-label">累计毛利</div>
+                  </div>
+                </div>
+                <div class="kpi-card kpi-purple">
+                  <div class="kpi-icon"><el-icon><DataAnalysis /></el-icon></div>
+                  <div class="kpi-body">
+                    <div class="kpi-value">{{ formatPercent(summaryData.profitRate) }}</div>
+                    <div class="kpi-label">毛利率</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 详细数据区 -->
+            <div class="detail-section">
+              <el-row :gutter="24">
+                <el-col :span="12">
+                  <div class="detail-card">
+                    <div class="detail-title">销售时间维度</div>
+                    <div class="detail-list">
+                      <div class="detail-item">
+                        <span class="label">首次销售</span>
+                        <span class="value">{{ formatDate(summaryData.firstSaleDate) }}</span>
+                      </div>
+                      <div class="detail-item">
+                        <span class="label">最近销售</span>
+                        <span class="value">{{ formatDate(summaryData.lastSaleDate) }}</span>
+                      </div>
+                      <div class="detail-item">
+                        <span class="label">销售天数</span>
+                        <span class="value">{{ summaryData.saleDays }} 天</span>
+                      </div>
+                    </div>
+                  </div>
+                </el-col>
+                <el-col :span="12">
+                  <div class="detail-card">
+                    <div class="detail-title">日均销售数据</div>
+                    <div class="detail-list">
+                      <div class="detail-item">
+                        <span class="label">日均销量</span>
+                        <span class="value">{{ summaryData.dailyAvgQuantity }} 件</span>
+                      </div>
+                      <div class="detail-item">
+                        <span class="label">日均销售额</span>
+                        <span class="value">¥{{ summaryData.dailyAvgAmount }}</span>
+                      </div>
+                      <div class="detail-item">
+                        <span class="label">平均售价</span>
+                        <span class="value">¥{{ summaryData.avgUnitPrice }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </el-col>
+              </el-row>
+            </div>
+
+            <!-- 近30天对比 -->
+            <div class="compare-section">
+              <div class="compare-card">
+                <div class="compare-header">
+                  <span class="title">近30天表现</span>
+                  <span class="tag" :class="summaryData.recentVsHistoryRate >= 0 ? 'up' : 'down'">
+                    <el-icon v-if="summaryData.recentVsHistoryRate >= 0"><Top /></el-icon>
+                    <el-icon v-else><Bottom /></el-icon>
+                    {{ summaryData.recentVsHistoryRate >= 0 ? '+' : '' }}{{ formatPercent(summaryData.recentVsHistoryRate) }}
+                    <span class="tag-label">vs 历史日均</span>
+                  </span>
+                </div>
+                <div class="compare-body">
+                  <div class="compare-item">
+                    <span class="label">近30天销量</span>
+                    <span class="value">{{ summaryData.recent30Quantity }} 件</span>
+                  </div>
+                  <div class="compare-item">
+                    <span class="label">近30天销售额</span>
+                    <span class="value">¥{{ formatNumber(summaryData.recent30Amount) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 趋势图 -->
+            <div class="chart-section">
+              <div class="chart-title">近30天销售趋势</div>
+              <div ref="trendChartRef" class="chart-container"></div>
+            </div>
+          </template>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="closeSummaryDialog">关 闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -682,7 +972,7 @@ $yellow: #ffce00;
   justify-content: center;
   gap: 4px;
   font-weight: 500;
-  
+
   .stock-num {
     color: #303133;
   }
@@ -794,12 +1084,235 @@ $yellow: #ffce00;
   display: flex;
   align-items: center;
   width: 100%;
-  
+
   .stock-tip-icon {
     margin-left: 8px;
     color: #909399;
     font-size: 16px;
     cursor: help;
+  }
+}
+
+// ========== 销售概况弹窗样式 ==========
+.summary-dialog {
+  :deep(.el-dialog__body) {
+    padding: 16px 20px;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+}
+
+.summary-content {
+  min-height: 200px;
+}
+
+.no-data-tip {
+  padding: 40px 0;
+}
+
+// KPI 卡片
+.kpi-section {
+  margin-bottom: 20px;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.kpi-card {
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+
+  .kpi-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
+
+  .kpi-body {
+    flex: 1;
+  }
+
+  .kpi-value {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .kpi-label {
+    font-size: 12px;
+    opacity: 0.9;
+    margin-top: 4px;
+  }
+}
+
+.kpi-blue {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.kpi-green {
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+}
+
+.kpi-orange {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.kpi-purple {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+// 详细数据区
+.detail-section {
+  margin-bottom: 20px;
+}
+
+.detail-card {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 16px;
+  height: 100%;
+}
+
+.detail-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.detail-list {
+  .detail-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+
+    &:not(:last-child) {
+      border-bottom: 1px dashed #ebeef5;
+    }
+
+    .label {
+      color: #909399;
+      font-size: 13px;
+    }
+
+    .value {
+      color: #303133;
+      font-weight: 600;
+      font-size: 14px;
+    }
+  }
+}
+
+// 对比区
+.compare-section {
+  margin-bottom: 20px;
+}
+
+.compare-card {
+  background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+
+.compare-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+
+  .title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #303133;
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 600;
+
+    &.up {
+      background: rgba(103, 194, 58, 0.1);
+      color: #67c23a;
+    }
+
+    &.down {
+      background: rgba(245, 108, 108, 0.1);
+      color: #f56c6c;
+    }
+
+    .tag-label {
+      font-weight: 400;
+      color: #909399;
+      margin-left: 4px;
+    }
+  }
+}
+
+.compare-body {
+  display: flex;
+  gap: 40px;
+
+  .compare-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    .label {
+      color: #606266;
+      font-size: 13px;
+    }
+
+    .value {
+      color: #303133;
+      font-weight: 700;
+      font-size: 15px;
+    }
+  }
+}
+
+// 趋势图
+.chart-section {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #ebeef5;
+  padding: 16px;
+}
+
+.chart-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 12px;
+}
+
+.chart-container {
+  height: 220px;
+}
+
+// 响应式
+@media (max-width: 768px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>

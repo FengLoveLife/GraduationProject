@@ -74,6 +74,11 @@
           <div class="header-left">
             <span>进货建议清单</span>
             <el-tag type="warning" effect="plain" size="small">共 {{ suggestions.length }} 项</el-tag>
+            <el-radio-group v-model="lightFilter" size="small" @change="handleLightFilterChange" class="light-filter">
+              <el-radio-button :value="0">全部</el-radio-button>
+              <el-radio-button :value="1">仅红灯</el-radio-button>
+              <el-radio-button :value="2">仅黄灯</el-radio-button>
+            </el-radio-group>
           </div>
           <div class="header-right">
             <el-button type="primary" :icon="Refresh" @click="handleRefresh" :loading="loading">生成进货建议</el-button>
@@ -228,6 +233,9 @@ const loading = ref(false)
 // 预测日期
 const predictDate = ref('')
 
+// 灯位筛选：0=全部, 1=仅红灯, 2=仅黄灯
+const lightFilter = ref(0)
+
 // 统计数据
 const redCount = ref(0)
 const yellowCount = ref(0)
@@ -279,9 +287,15 @@ const fetchSuggestions = async () => {
   loading.value = true
 
   try {
+    // 构建查询参数
+    const listParams = { status: 0 }
+    if (lightFilter.value > 0) {
+      listParams.lightStatus = lightFilter.value
+    }
+
     // 并行获取列表和汇总
     const [listRes, summaryRes] = await Promise.all([
-      getSuggestionList({ status: 0 }),
+      getSuggestionList(listParams),
       getSuggestionSummary()
     ])
 
@@ -303,6 +317,11 @@ const fetchSuggestions = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 灯位筛选变更
+const handleLightFilterChange = () => {
+  fetchSuggestions()
 }
 
 // 刷新建议（重新生成）
@@ -513,6 +532,11 @@ onMounted(() => {
       gap: 12px;
       font-weight: 700;
       color: #334155;
+
+      .light-filter {
+        margin-left: 8px;
+        font-weight: 400;
+      }
     }
 
     .header-right {

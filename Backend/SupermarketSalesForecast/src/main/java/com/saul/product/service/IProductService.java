@@ -6,6 +6,7 @@ import com.saul.product.dto.ProductAddDTO;
 import com.saul.product.dto.ProductQueryDTO;
 import com.saul.product.dto.ProductUpdateDTO;
 import com.saul.product.entity.Product;
+import com.saul.product.vo.ProductSalesSummaryVO;
 import com.saul.product.vo.ProductVO;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -43,4 +44,9 @@ public interface IProductService extends IService<Product> {
      * 删除商品
      */
     void deleteProduct(Long id);
+
+    /**
+     * 获取商品销售概况
+     */
+    ProductSalesSummaryVO getSalesSummary(Long productId);
 }

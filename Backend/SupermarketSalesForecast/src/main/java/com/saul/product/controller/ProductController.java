@@ -7,6 +7,7 @@ import com.saul.product.dto.ProductAddDTO;
 import com.saul.product.dto.ProductQueryDTO;
 import com.saul.product.dto.ProductUpdateDTO;
 import com.saul.product.service.IProductService;
+import com.saul.product.vo.ProductSalesSummaryVO;
 import com.saul.product.vo.ProductVO;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +48,15 @@ public class ProductController {
     public Result<ProductVO> detail(@PathVariable Long id) {
         ProductVO detail = productService.getDetailById(id);
         return Result.success(detail);
+    }
+
+    /**
+     * 获取商品销售概况
+     */
+    @GetMapping("/{id}/sales-summary")
+    public Result<ProductSalesSummaryVO> salesSummary(@PathVariable Long id) {
+        ProductSalesSummaryVO summary = productService.getSalesSummary(id);
+        return Result.success(summary);
     }
 
     /**

@@ -45,78 +45,57 @@ public class PurchaseSuggestionServiceImpl extends ServiceImpl<PurchaseSuggestio
         List<Map<String, Object>> redLightProducts = suggestionMapper.getRedLightProducts();
         log.info("发现红灯商品: {} 个", redLightProducts.size());
 
-        if (redLightProducts.isEmpty()) {
-            Map<String, Object> result = new HashMap<>();
-            result.put("redCount", 0);
-            result.put("yellowCount", 0);
-            result.put("totalCount", 0);
-            result.put("message", "当前没有需要补货的商品");
-            return result;
-        }
-
-        // Step 3: 提取红灯商品的分类ID
-        Set<Long> redCategoryIds = redLightProducts.stream()
-                .map(p -> ((Number) p.get("categoryId")).longValue())
-                .collect(Collectors.toSet());
-
-        // Step 4: 检查每个分类下的黄灯商品
         List<PurchaseSuggestion> allSuggestions = new ArrayList<>();
 
-        // 先处理红灯商品
+        // Step 3: 处理红灯商品
         for (Map<String, Object> product : redLightProducts) {
             PurchaseSuggestion suggestion = createSuggestion(product, 1); // 1 = 红灯
             allSuggestions.add(suggestion);
         }
 
-        // 再检查同分类的黄灯商品
-        for (Long categoryId : redCategoryIds) {
-            List<Map<String, Object>> categoryProducts = suggestionMapper.getProductsByCategory(categoryId);
+        // Step 4: 独立扫描所有非红灯商品，检查黄灯
+        List<Map<String, Object>> nonRedProducts = suggestionMapper.getNonRedLightProducts();
+        for (Map<String, Object> product : nonRedProducts) {
+            Long productId = ((Number) product.get("productId")).longValue();
+            Integer currentStock = ((Number) product.get("currentStock")).intValue();
+            Integer safetyStock = ((Number) product.get("safetyStock")).intValue();
+            Integer restockCycleDays = product.get("restockCycleDays") != null
+                    ? ((Number) product.get("restockCycleDays")).intValue() : 7;
 
-            for (Map<String, Object> product : categoryProducts) {
-                Long productId = ((Number) product.get("productId")).longValue();
-                Integer currentStock = ((Number) product.get("currentStock")).intValue();
-                Integer safetyStock = ((Number) product.get("safetyStock")).intValue();
-                Integer restockCycleDays = product.get("restockCycleDays") != null
-                        ? ((Number) product.get("restockCycleDays")).intValue() : 7;
+            // 计算平滑日均销量
+            BigDecimal dailySales = calculateSmoothedDailySales(productId, restockCycleDays);
 
-                // 跳过已经是红灯的商品
-                if (currentStock <= safetyStock) {
-                    continue;
-                }
+            // 计算黄灯线 = 安全库存 + 周期销量 × 30%
+            BigDecimal cycleSales = dailySales.multiply(BigDecimal.valueOf(restockCycleDays));
+            BigDecimal yellowLine = BigDecimal.valueOf(safetyStock).add(cycleSales.multiply(BigDecimal.valueOf(0.3)));
 
-                // 计算平滑日均销量
-                BigDecimal dailySales = calculateSmoothedDailySales(productId, restockCycleDays);
-
-                // 计算黄灯线 = 安全库存 + 周期销量 × 30%
-                BigDecimal cycleSales = dailySales.multiply(BigDecimal.valueOf(restockCycleDays));
-                BigDecimal yellowLine = BigDecimal.valueOf(safetyStock).add(cycleSales.multiply(BigDecimal.valueOf(0.3)));
-
-                // 判断是否为黄灯
-                if (BigDecimal.valueOf(currentStock).compareTo(yellowLine) <= 0) {
-                    PurchaseSuggestion suggestion = createSuggestion(product, 2); // 2 = 黄灯
-                    suggestion.setDailySales(dailySales);
-                    suggestion.setTargetStock(dailySales.multiply(BigDecimal.valueOf(restockCycleDays))
-                            .add(BigDecimal.valueOf(safetyStock)).intValue());
-                    suggestion.setSuggestedQuantity(Math.max(0,
-                            suggestion.getTargetStock() - currentStock));
-                    suggestion.setFinalQuantity(suggestion.getSuggestedQuantity());
-                    allSuggestions.add(suggestion);
-                }
+            // 判断是否为黄灯
+            if (BigDecimal.valueOf(currentStock).compareTo(yellowLine) <= 0) {
+                PurchaseSuggestion suggestion = createSuggestion(product, 2); // 2 = 黄灯
+                suggestion.setDailySales(dailySales);
+                suggestion.setTargetStock(dailySales.multiply(BigDecimal.valueOf(restockCycleDays))
+                        .add(BigDecimal.valueOf(safetyStock)).intValue());
+                suggestion.setSuggestedQuantity(Math.max(0,
+                        suggestion.getTargetStock() - currentStock));
+                suggestion.setFinalQuantity(suggestion.getSuggestedQuantity());
+                allSuggestions.add(suggestion);
             }
         }
 
-        // Step 5: 批量保存进货建议
-        this.saveBatch(allSuggestions);
-
-        // Step 6: 统计结果
+        // Step 5: 统计结果
         int redCount = (int) allSuggestions.stream().filter(s -> s.getLightStatus() == 1).count();
         int yellowCount = (int) allSuggestions.stream().filter(s -> s.getLightStatus() == 2).count();
+
+        // Step 6: 批量保存（有建议时才保存）
+        if (!allSuggestions.isEmpty()) {
+            this.saveBatch(allSuggestions);
+        }
 
         Map<String, Object> result = new HashMap<>();
         result.put("redCount", redCount);
         result.put("yellowCount", yellowCount);
         result.put("totalCount", allSuggestions.size());
-        result.put("message", "生成成功");
+        result.put("message", allSuggestions.isEmpty() ? "当前没有需要补货的商品" : "生成成功");
         log.info("进货建议生成完成：红灯 {} 个，黄灯 {} 个", redCount, yellowCount);
 
         return result;
@@ -124,10 +103,14 @@ public class PurchaseSuggestionServiceImpl extends ServiceImpl<PurchaseSuggestio
 
     /**
      * 计算平滑日均销量（加权公式）
+     *
+     * 策略：
+     * - 短周期（≤15天，如生鲜/饮料）：100% AI预测（未来7天均值），对近期趋势更敏感
+     * - 长周期（>15天，如粮油/日百）：70% 历史均值(60天) + 30% AI预测，避免节假日/天气极端值放大
      */
     private BigDecimal calculateSmoothedDailySales(Long productId, Integer restockCycleDays) {
-        // 短周期生鲜（≤7天）：完全相信AI预测
-        if (restockCycleDays <= 7) {
+        // 短周期（≤15天）：完全相信AI预测
+        if (restockCycleDays <= 15) {
             Integer predictedTotal = suggestionMapper.getPredictedSalesTotal(productId, 7);
             Integer predictedDays = suggestionMapper.getPredictedSalesDays(productId, 7);
 
@@ -139,8 +122,8 @@ public class PurchaseSuggestionServiceImpl extends ServiceImpl<PurchaseSuggestio
             return getHistoricalDailySales(productId, 30);
         }
 
-        // 长周期标品（14/30天）：历史70% + AI预测30%
-        BigDecimal historicalDailySales = getHistoricalDailySales(productId, 30);
+        // 长周期（>15天）：70% 历史均值(60天) + 30% AI预测
+        BigDecimal historicalDailySales = getHistoricalDailySales(productId, 60);
         BigDecimal predictedDailySales = getPredictedDailySales(productId, 7);
 
         // 如果预测数据不足，完全依赖历史

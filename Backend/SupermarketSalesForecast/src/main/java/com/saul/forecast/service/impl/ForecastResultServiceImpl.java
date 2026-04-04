@@ -459,12 +459,14 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         if (safetyStock == null) safetyStock = 0;
         if (predictedQuantity == null) predictedQuantity = 0;
 
-        if (currentStock < predictedQuantity + safetyStock) {
-            return "needPurchase";
-        }
-
+        // 先判断最危急的：库存已低于安全库存
         if (currentStock < safetyStock) {
             return "warning";
+        }
+
+        // 再判断：库存不足以覆盖预测销量+安全库存
+        if (currentStock < predictedQuantity + safetyStock) {
+            return "needPurchase";
         }
 
         return "sufficient";

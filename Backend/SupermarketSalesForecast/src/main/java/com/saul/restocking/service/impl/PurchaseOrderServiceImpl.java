@@ -237,7 +237,8 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
         List<PurchaseOrderItem> items = orderItemMapper.selectList(wrapper);
 
         // 更新库存
-        for (PurchaseOrderItem item : items) {
+        for (int i = 0; i < items.size(); i++) {
+            PurchaseOrderItem item = items.get(i);
             Product product = productMapper.selectById(item.getProductId());
             if (product != null) {
                 int beforeStock = product.getStock();
@@ -246,9 +247,9 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
                 product.setStock(afterStock);
                 productMapper.updateById(product);
 
-                // 记录库存变动流水
+                // 记录库存变动流水（用订单号+序号保证唯一性）
                 InventoryLog log = new InventoryLog();
-                log.setLogNo("IL" + System.currentTimeMillis());
+                log.setLogNo("IL" + order.getOrderNo() + String.format("%03d", i + 1));
                 log.setProductId(item.getProductId());
                 log.setType(1); // 进货入库
                 log.setChangeAmount(item.getQuantity());
