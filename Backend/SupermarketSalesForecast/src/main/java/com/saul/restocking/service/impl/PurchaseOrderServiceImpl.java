@@ -224,10 +224,23 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
     }
 
     @Override
+    public boolean placeOrder(Long id) {
+        PurchaseOrder order = this.getById(id);
+        if (order == null || order.getStatus() != 0) {
+            return false;
+        }
+        order.setStatus(1); // 已下单（货在途中）
+        order.setUpdateTime(LocalDateTime.now());
+        this.updateById(order);
+        log.info("进货单已下单，单号: {}", order.getOrderNo());
+        return true;
+    }
+
+    @Override
     @Transactional
     public boolean confirmArrival(Long id) {
         PurchaseOrder order = this.getById(id);
-        if (order == null || order.getStatus() != 0) {
+        if (order == null || order.getStatus() != 1) {
             return false;
         }
 
@@ -248,19 +261,19 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
                 productMapper.updateById(product);
 
                 // 记录库存变动流水（用订单号+序号保证唯一性）
-                InventoryLog log = new InventoryLog();
-                log.setLogNo("IL" + order.getOrderNo() + String.format("%03d", i + 1));
-                log.setProductId(item.getProductId());
-                log.setType(1); // 进货入库
-                log.setChangeAmount(item.getQuantity());
-                log.setBeforeStock(beforeStock);
-                log.setAfterStock(afterStock);
-                log.setReferenceNo(order.getOrderNo());
-                log.setOperator(order.getOperator());
-                log.setRemark("进货入库");
-                log.setCreateTime(LocalDateTime.now());
-                log.setUpdateTime(LocalDateTime.now());
-                inventoryLogMapper.insert(log);
+                InventoryLog inventoryLog = new InventoryLog();
+                inventoryLog.setLogNo("IL" + order.getOrderNo() + String.format("%03d", i + 1));
+                inventoryLog.setProductId(item.getProductId());
+                inventoryLog.setType(1); // 进货入库
+                inventoryLog.setChangeAmount(item.getQuantity());
+                inventoryLog.setBeforeStock(beforeStock);
+                inventoryLog.setAfterStock(afterStock);
+                inventoryLog.setReferenceNo(order.getOrderNo());
+                inventoryLog.setOperator(order.getOperator());
+                inventoryLog.setRemark("进货入库");
+                inventoryLog.setCreateTime(LocalDateTime.now());
+                inventoryLog.setUpdateTime(LocalDateTime.now());
+                inventoryLogMapper.insert(inventoryLog);
             }
         }
 
@@ -278,7 +291,8 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
     @Transactional
     public boolean cancelOrder(Long id) {
         PurchaseOrder order = this.getById(id);
-        if (order == null || order.getStatus() != 0) {
+        // 待确认(0) 和 已下单(1) 均可取消
+        if (order == null || (order.getStatus() != 0 && order.getStatus() != 1)) {
             return false;
         }
 

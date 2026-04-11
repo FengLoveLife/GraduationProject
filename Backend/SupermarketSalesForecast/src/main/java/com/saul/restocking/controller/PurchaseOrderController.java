@@ -61,6 +61,18 @@ public class PurchaseOrderController {
     }
 
     /**
+     * 标记已下单（货在途中）
+     */
+    @PutMapping("/place/{id}")
+    public Result<Boolean> placeOrder(@PathVariable Long id) {
+        boolean success = orderService.placeOrder(id);
+        if (success) {
+            return Result.success("已标记为已下单", true);
+        }
+        return Result.error("操作失败，请检查订单状态");
+    }
+
+    /**
      * 确认入库
      */
     @PutMapping("/confirm/{id}")

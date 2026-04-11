@@ -65,7 +65,7 @@ public class PurchaseOrder implements Serializable {
     private LocalDate actualArrivalDate;
 
     /**
-     * 状态：0-待确认，1-已下单，2-已完成，3-已取消
+     * 状态：0-待确认，1-已下单（货在途中），2-已完成，3-已取消
      */
     @TableField("status")
     private Integer status;

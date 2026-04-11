@@ -25,6 +25,7 @@
         <el-form-item label="状态">
           <el-select v-model="filterForm.status" placeholder="全部状态" clearable style="width: 120px">
             <el-option label="待确认" :value="0" />
+            <el-option label="已下单" :value="1" />
             <el-option label="已完成" :value="2" />
             <el-option label="已取消" :value="3" />
           </el-select>
@@ -73,9 +74,13 @@
           </template>
         </el-table-column>
         <el-table-column prop="orderDate" label="下单日期" width="120" align="center" />
-        <el-table-column prop="expectedDate" label="预计到货" width="120" align="center">
+        <el-table-column prop="expectedDate" label="预计到货" width="140" align="center">
           <template #default="{ row }">
-            {{ row.expectedDate || '-' }}
+            <span v-if="!row.expectedDate">-</span>
+            <span v-else-if="isOverdue(row)" class="overdue-date">
+              {{ row.expectedDate }} <el-tag type="danger" size="small" effect="dark">逾期</el-tag>
+            </span>
+            <span v-else>{{ row.expectedDate }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="operator" label="操作人" width="100" align="center" />
@@ -86,13 +91,16 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" align="center" fixed="right">
+        <el-table-column label="操作" width="200" align="center" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="showDetail(row)">详情</el-button>
-            <el-button v-if="row.status === 0" type="success" link size="small" @click="handleConfirm(row)">
+            <el-button v-if="row.status === 0" type="warning" link size="small" @click="handlePlace(row)">
+              已下单
+            </el-button>
+            <el-button v-if="row.status === 1" type="success" link size="small" @click="handleConfirm(row)">
               确认入库
             </el-button>
-            <el-button v-if="row.status === 0" type="danger" link size="small" @click="handleCancel(row)">
+            <el-button v-if="row.status === 0 || row.status === 1" type="danger" link size="small" @click="handleCancel(row)">
               取消
             </el-button>
           </template>
@@ -162,7 +170,10 @@
 
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button v-if="currentRecord?.status === 0" type="success" @click="handleConfirmFromDetail">
+        <el-button v-if="currentRecord?.status === 0" type="warning" @click="handlePlaceFromDetail">
+          已下单
+        </el-button>
+        <el-button v-if="currentRecord?.status === 1" type="success" @click="handleConfirmFromDetail">
           确认入库
         </el-button>
       </template>
@@ -174,7 +185,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
-import { getPurchaseOrderList, getPurchaseOrderDetail, confirmOrderArrival, cancelPurchaseOrder } from '@/api/restocking'
+import { getPurchaseOrderList, getPurchaseOrderDetail, placeOrder, confirmOrderArrival, cancelPurchaseOrder } from '@/api/restocking'
 
 // 加载状态
 const loading = ref(false)
@@ -254,6 +265,49 @@ const showDetail = async (row) => {
     ElMessage.error('获取详情失败')
   } finally {
     detailLoading.value = false
+  }
+}
+
+// 判断是否逾期（已下单状态 + 预计到货日已过）
+const isOverdue = (row) => {
+  return row.status === 1 && row.expectedDate && row.expectedDate < new Date().toISOString().slice(0, 10)
+}
+
+// 标记已下单
+const handlePlace = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确认已向供应商下单 ${row.orderNo}，货物正在途中？`,
+      '标记已下单',
+      { type: 'info' }
+    )
+    const res = await placeOrder(row.id)
+    if (res.code === 200) {
+      ElMessage.success('已标记为已下单')
+      await fetchRecords()
+    } else {
+      ElMessage.error(res.message || '操作失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error('操作失败')
+  }
+}
+
+// 从详情弹窗标记已下单
+const handlePlaceFromDetail = async () => {
+  if (!currentRecord.value) return
+  try {
+    await ElMessageBox.confirm('确认已向供应商下单，货物正在途中？', '标记已下单', { type: 'info' })
+    const res = await placeOrder(currentRecord.value.id)
+    if (res.code === 200) {
+      ElMessage.success('已标记为已下单')
+      detailVisible.value = false
+      await fetchRecords()
+    } else {
+      ElMessage.error(res.message || '操作失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error('操作失败')
   }
 }
 
@@ -390,6 +444,15 @@ onMounted(() => {
     cursor: pointer;
     font-weight: 600;
     &:hover { text-decoration: underline; }
+  }
+
+  .overdue-date {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: #EF4444;
+    font-weight: 600;
   }
 
   .amount {

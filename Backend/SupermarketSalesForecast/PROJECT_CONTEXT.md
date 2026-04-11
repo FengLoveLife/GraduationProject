@@ -11,7 +11,6 @@
 ---
 
 ## 2. 全局技术栈与【不可违背的开发铁律】
-
 ### 2.1 前端技术栈
 
 * **核心框架**：Vue 3 (Composition API / `<script setup>`) + Element Plus + Axios + Echarts。

@@ -38,6 +38,13 @@ public interface IPurchaseOrderService extends IService<PurchaseOrder> {
     PurchaseOrderVO getOrderDetail(Long id);
 
     /**
+     * 标记已下单（货在途中）
+     * @param id 进货单ID
+     * @return 是否成功
+     */
+    boolean placeOrder(Long id);
+
+    /**
      * 确认入库
      * @param id 进货单ID
      * @return 是否成功

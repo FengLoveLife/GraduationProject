@@ -11,7 +11,7 @@
 
 import argparse
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sales_generator import SalesDataGenerator
 from db_manager import (
@@ -186,5 +186,4 @@ def main():
 
 
 if __name__ == '__main__':
-    from datetime import timedelta
     main()

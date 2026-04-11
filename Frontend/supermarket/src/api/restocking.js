@@ -59,6 +59,12 @@ export const getPurchaseOrderList = (params) => request.get('/restocking/order/l
 export const getPurchaseOrderDetail = (id) => request.get(`/restocking/order/detail/${id}`)
 
 /**
+ * 标记已下单（货在途中）
+ * @param {number} id - 进货单ID
+ */
+export const placeOrder = (id) => request.put(`/restocking/order/place/${id}`)
+
+/**
  * 确认入库
  * @param {number} id - 进货单ID
  */

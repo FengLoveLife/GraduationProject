@@ -41,15 +41,21 @@ public class PurchaseSuggestionServiceImpl extends ServiceImpl<PurchaseSuggestio
         wrapper.eq(PurchaseSuggestion::getStatus, 0);
         this.remove(wrapper);
 
-        // Step 2: 扫描红灯商品（库存 <= 安全库存）
+        // Step 2: 批量预加载销量数据，消除N+1查询
+        // 历史日均：过去30天
+        Map<Long, BigDecimal> historicalDailyMap = buildHistoricalDailyMap(30);
+        // 预测日均：未来7天
+        Map<Long, BigDecimal> predictedDailyMap = buildPredictedDailyMap(7);
+        log.info("批量加载完成：历史{}个商品，预测{}个商品", historicalDailyMap.size(), predictedDailyMap.size());
+
+        // Step 3: 扫描红灯商品（库存 <= 安全库存）
         List<Map<String, Object>> redLightProducts = suggestionMapper.getRedLightProducts();
         log.info("发现红灯商品: {} 个", redLightProducts.size());
 
         List<PurchaseSuggestion> allSuggestions = new ArrayList<>();
 
-        // Step 3: 处理红灯商品
         for (Map<String, Object> product : redLightProducts) {
-            PurchaseSuggestion suggestion = createSuggestion(product, 1); // 1 = 红灯
+            PurchaseSuggestion suggestion = createSuggestion(product, 1, historicalDailyMap, predictedDailyMap);
             allSuggestions.add(suggestion);
         }
 
@@ -62,22 +68,15 @@ public class PurchaseSuggestionServiceImpl extends ServiceImpl<PurchaseSuggestio
             Integer restockCycleDays = product.get("restockCycleDays") != null
                     ? ((Number) product.get("restockCycleDays")).intValue() : 7;
 
-            // 计算平滑日均销量
-            BigDecimal dailySales = calculateSmoothedDailySales(productId, restockCycleDays);
+            BigDecimal dailySales = blendDailySales(productId, restockCycleDays, historicalDailyMap, predictedDailyMap);
 
-            // 计算黄灯线 = 安全库存 + 周期销量 × 30%
-            BigDecimal cycleSales = dailySales.multiply(BigDecimal.valueOf(restockCycleDays));
-            BigDecimal yellowLine = BigDecimal.valueOf(safetyStock).add(cycleSales.multiply(BigDecimal.valueOf(0.3)));
+            // 黄灯线 = 安全库存 + 周期销量 × 30%
+            BigDecimal yellowLine = BigDecimal.valueOf(safetyStock)
+                    .add(dailySales.multiply(BigDecimal.valueOf(restockCycleDays))
+                            .multiply(BigDecimal.valueOf(0.3)));
 
-            // 判断是否为黄灯
             if (BigDecimal.valueOf(currentStock).compareTo(yellowLine) <= 0) {
-                PurchaseSuggestion suggestion = createSuggestion(product, 2); // 2 = 黄灯
-                suggestion.setDailySales(dailySales);
-                suggestion.setTargetStock(dailySales.multiply(BigDecimal.valueOf(restockCycleDays))
-                        .add(BigDecimal.valueOf(safetyStock)).intValue());
-                suggestion.setSuggestedQuantity(Math.max(0,
-                        suggestion.getTargetStock() - currentStock));
-                suggestion.setFinalQuantity(suggestion.getSuggestedQuantity());
+                PurchaseSuggestion suggestion = createSuggestion(product, 2, historicalDailyMap, predictedDailyMap);
                 allSuggestions.add(suggestion);
             }
         }
@@ -86,7 +85,7 @@ public class PurchaseSuggestionServiceImpl extends ServiceImpl<PurchaseSuggestio
         int redCount = (int) allSuggestions.stream().filter(s -> s.getLightStatus() == 1).count();
         int yellowCount = (int) allSuggestions.stream().filter(s -> s.getLightStatus() == 2).count();
 
-        // Step 6: 批量保存（有建议时才保存）
+        // Step 6: 批量保存
         if (!allSuggestions.isEmpty()) {
             this.saveBatch(allSuggestions);
         }
@@ -102,86 +101,82 @@ public class PurchaseSuggestionServiceImpl extends ServiceImpl<PurchaseSuggestio
     }
 
     /**
-     * 计算平滑日均销量（加权公式）
-     *
-     * 策略：
-     * - 短周期（≤15天，如生鲜/饮料）：100% AI预测（未来7天均值），对近期趋势更敏感
-     * - 长周期（>15天，如粮油/日百）：70% 历史均值(60天) + 30% AI预测，避免节假日/天气极端值放大
+     * 批量构建历史日均销量 Map（productId → 日均）
      */
-    private BigDecimal calculateSmoothedDailySales(Long productId, Integer restockCycleDays) {
-        // 短周期（≤15天）：完全相信AI预测
-        if (restockCycleDays <= 15) {
-            Integer predictedTotal = suggestionMapper.getPredictedSalesTotal(productId, 7);
-            Integer predictedDays = suggestionMapper.getPredictedSalesDays(productId, 7);
-
-            if (predictedTotal != null && predictedDays != null && predictedDays > 0) {
-                return BigDecimal.valueOf(predictedTotal)
-                        .divide(BigDecimal.valueOf(predictedDays), 2, RoundingMode.HALF_UP);
+    private Map<Long, BigDecimal> buildHistoricalDailyMap(int days) {
+        List<Map<String, Object>> rows = suggestionMapper.batchGetHistoricalSales(days);
+        Map<Long, BigDecimal> map = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Long productId = ((Number) row.get("productId")).longValue();
+            BigDecimal total = row.get("totalQuantity") != null
+                    ? new BigDecimal(row.get("totalQuantity").toString()) : BigDecimal.ZERO;
+            Integer salesDays = row.get("salesDays") != null
+                    ? ((Number) row.get("salesDays")).intValue() : 0;
+            if (total.compareTo(BigDecimal.ZERO) > 0 && salesDays > 0) {
+                map.put(productId, total.divide(BigDecimal.valueOf(salesDays), 2, RoundingMode.HALF_UP));
             }
-            // 没有预测数据，降级用历史数据
-            return getHistoricalDailySales(productId, 30);
         }
+        return map;
+    }
 
-        // 长周期（>15天）：70% 历史均值(60天) + 30% AI预测
-        BigDecimal historicalDailySales = getHistoricalDailySales(productId, 60);
-        BigDecimal predictedDailySales = getPredictedDailySales(productId, 7);
-
-        // 如果预测数据不足，完全依赖历史
-        if (predictedDailySales == null || predictedDailySales.compareTo(BigDecimal.ZERO) == 0) {
-            return historicalDailySales;
+    /**
+     * 批量构建预测日均销量 Map（productId → 日均）
+     */
+    private Map<Long, BigDecimal> buildPredictedDailyMap(int days) {
+        List<Map<String, Object>> rows = suggestionMapper.batchGetPredictedSales(days);
+        Map<Long, BigDecimal> map = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Long productId = ((Number) row.get("productId")).longValue();
+            BigDecimal total = row.get("totalPredicted") != null
+                    ? new BigDecimal(row.get("totalPredicted").toString()) : BigDecimal.ZERO;
+            Integer forecastDays = row.get("forecastDays") != null
+                    ? ((Number) row.get("forecastDays")).intValue() : 0;
+            if (total.compareTo(BigDecimal.ZERO) > 0 && forecastDays > 0) {
+                map.put(productId, total.divide(BigDecimal.valueOf(forecastDays), 2, RoundingMode.HALF_UP));
+            }
         }
+        return map;
+    }
 
-        // 加权计算：70% 历史 + 30% AI
-        return historicalDailySales.multiply(BigDecimal.valueOf(0.7))
-                .add(predictedDailySales.multiply(BigDecimal.valueOf(0.3)))
+    /**
+     * 三档加权公式（从预加载Map取值，无DB调用）
+     *
+     * - ≤7天：100% AI预测
+     * - 7-14天：60% 预测 + 40% 历史
+     * - ≥15天：30% 预测 + 70% 历史
+     */
+    private BigDecimal blendDailySales(Long productId, Integer restockCycleDays,
+                                       Map<Long, BigDecimal> historicalMap,
+                                       Map<Long, BigDecimal> predictedMap) {
+        BigDecimal hist = historicalMap.getOrDefault(productId, BigDecimal.ZERO);
+        BigDecimal pred = predictedMap.getOrDefault(productId, BigDecimal.ZERO);
+
+        if (restockCycleDays <= 7) {
+            return pred.compareTo(BigDecimal.ZERO) > 0 ? pred : hist;
+        }
+        if (restockCycleDays < 15) {
+            if (pred.compareTo(BigDecimal.ZERO) == 0) return hist;
+            return pred.multiply(BigDecimal.valueOf(0.6))
+                    .add(hist.multiply(BigDecimal.valueOf(0.4)))
+                    .setScale(2, RoundingMode.HALF_UP);
+        }
+        // ≥15天
+        if (pred.compareTo(BigDecimal.ZERO) == 0) return hist;
+        return pred.multiply(BigDecimal.valueOf(0.3))
+                .add(hist.multiply(BigDecimal.valueOf(0.7)))
                 .setScale(2, RoundingMode.HALF_UP);
     }
 
     /**
-     * 获取历史日均销量
+     * 创建进货建议记录（使用预加载Map，无额外DB调用）
      */
-    private BigDecimal getHistoricalDailySales(Long productId, Integer days) {
-        BigDecimal historicalTotal = suggestionMapper.getHistoricalSalesTotal(productId, days);
-        Integer historicalDays = suggestionMapper.getHistoricalSalesDays(productId, days);
-
-        if (historicalTotal == null || historicalTotal.compareTo(BigDecimal.ZERO) == 0) {
-            return BigDecimal.ZERO;
-        }
-
-        if (historicalDays == null || historicalDays == 0) {
-            // 没有销售记录，返回0
-            return BigDecimal.ZERO;
-        }
-
-        return historicalTotal.divide(BigDecimal.valueOf(historicalDays), 2, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * 获取预测日均销量
-     */
-    private BigDecimal getPredictedDailySales(Long productId, Integer days) {
-        Integer predictedTotal = suggestionMapper.getPredictedSalesTotal(productId, days);
-        Integer predictedDays = suggestionMapper.getPredictedSalesDays(productId, days);
-
-        if (predictedTotal == null || predictedTotal == 0) {
-            return null;
-        }
-
-        if (predictedDays == null || predictedDays == 0) {
-            return null;
-        }
-
-        return BigDecimal.valueOf(predictedTotal)
-                .divide(BigDecimal.valueOf(predictedDays), 2, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * 创建进货建议记录
-     */
-    private PurchaseSuggestion createSuggestion(Map<String, Object> product, Integer lightStatus) {
+    private PurchaseSuggestion createSuggestion(Map<String, Object> product, Integer lightStatus,
+                                                 Map<Long, BigDecimal> historicalMap,
+                                                 Map<Long, BigDecimal> predictedMap) {
         PurchaseSuggestion suggestion = new PurchaseSuggestion();
 
-        suggestion.setProductId(((Number) product.get("productId")).longValue());
+        Long productId = ((Number) product.get("productId")).longValue();
+        suggestion.setProductId(productId);
         suggestion.setProductCode((String) product.get("productCode"));
         suggestion.setProductName((String) product.get("productName"));
         suggestion.setCategoryId(((Number) product.get("categoryId")).longValue());
@@ -201,8 +196,7 @@ public class PurchaseSuggestionServiceImpl extends ServiceImpl<PurchaseSuggestio
         suggestion.setSafetyStock(safetyStock);
         suggestion.setLightStatus(lightStatus);
 
-        // 计算平滑日均销量
-        BigDecimal dailySales = calculateSmoothedDailySales(suggestion.getProductId(), restockCycleDays);
+        BigDecimal dailySales = blendDailySales(productId, restockCycleDays, historicalMap, predictedMap);
         suggestion.setDailySales(dailySales);
 
         // 目标库存 = 日均销量 × 补货周期 + 安全库存
@@ -212,18 +206,16 @@ public class PurchaseSuggestionServiceImpl extends ServiceImpl<PurchaseSuggestio
                 .intValue();
         suggestion.setTargetStock(targetStock);
 
-        // 预测销量 = 日均销量 × 补货周期（用于展示）
         int predictedQuantity = dailySales.multiply(BigDecimal.valueOf(restockCycleDays))
                 .setScale(0, RoundingMode.HALF_UP)
                 .intValue();
         suggestion.setPredictedQuantity(predictedQuantity);
 
-        // 建议进货量 = 目标库存 - 当前库存
         int suggestedQuantity = Math.max(0, targetStock - currentStock);
         suggestion.setSuggestedQuantity(suggestedQuantity);
         suggestion.setFinalQuantity(suggestedQuantity);
 
-        suggestion.setStatus(0); // 待处理
+        suggestion.setStatus(0);
         suggestion.setCreateTime(LocalDateTime.now());
         suggestion.setUpdateTime(LocalDateTime.now());
 

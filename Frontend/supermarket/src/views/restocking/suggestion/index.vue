@@ -101,7 +101,7 @@
       </div>
 
       <!-- 表格数据 -->
-      <el-table v-else :data="suggestions" stripe style="width: 100%" show-summary :summary-method="getSummary">
+      <el-table v-else :data="paginatedSuggestions" stripe style="width: 100%" show-summary :summary-method="getSummary">
         <el-table-column type="index" label="#" width="50" align="center" />
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
@@ -141,6 +141,7 @@
               :max="999"
               size="small"
               controls-position="right"
+              @change="handleQtyChange(row)"
             />
           </template>
         </el-table-column>
@@ -155,13 +156,26 @@
           </template>
         </el-table-column>
         <el-table-column label="操作" width="80" align="center" fixed="right">
-          <template #default="{ $index }">
-            <el-button type="danger" link size="small" @click="handleRemove($index)">
+          <template #default="{ row }">
+            <el-button type="danger" link size="small" @click="handleRemove(row)">
               移除
             </el-button>
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 分页 -->
+      <div class="pagination-wrapper">
+        <el-pagination
+          v-model:current-page="pagination.currentPage"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="suggestions.length"
+          layout="total, sizes, prev, pager, next"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
 
       <!-- 底部汇总 -->
       <div class="total-bar">
@@ -176,11 +190,8 @@
     </el-card>
 
     <!-- 生成进货单弹窗 -->
-    <el-dialog v-model="orderDialogVisible" title="确认生成进货单" width="550px" destroy-on-close>
+    <el-dialog v-model="orderDialogVisible" title="确认生成进货单" width="780px" destroy-on-close>
       <el-form :model="orderForm" label-width="100px" class="order-form">
-        <el-form-item label="供应商">
-          <el-input v-model="orderForm.supplier" placeholder="请输入供应商名称" />
-        </el-form-item>
         <el-form-item label="预计到货">
           <el-date-picker
             v-model="orderForm.expectedDate"
@@ -190,22 +201,58 @@
           />
         </el-form-item>
         <el-form-item label="备注">
-          <el-input v-model="orderForm.remark" type="textarea" :rows="3" placeholder="请输入备注信息" />
+          <el-input v-model="orderForm.remark" type="textarea" :rows="2" placeholder="请输入备注信息" />
         </el-form-item>
       </el-form>
 
-      <div class="order-summary">
-        <div class="summary-item">
-          <span class="label">进货商品</span>
-          <span class="value">{{ suggestions.length }} 种</span>
+      <!-- 进货明细表 -->
+      <div class="order-detail-title">
+        <span>进货明细</span>
+        <el-tag type="info" size="small" effect="plain">{{ suggestions.length }} 种商品</el-tag>
+      </div>
+      <div class="order-detail-table">
+        <el-table :data="suggestions" size="small" stripe max-height="280">
+          <el-table-column type="index" label="#" width="45" align="center" />
+          <el-table-column label="状态" width="65" align="center">
+            <template #default="{ row }">
+              <el-tag :type="row.lightStatus === 1 ? 'danger' : 'warning'" size="small" effect="dark">
+                {{ row.lightStatus === 1 ? '红灯' : '黄灯' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="productName" label="商品名称" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="categoryName" label="分类" width="85" align="center" show-overflow-tooltip />
+          <el-table-column label="进货量" width="75" align="center">
+            <template #default="{ row }">
+              <span class="qty-value">{{ row.purchaseQty }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="单价" width="80" align="center">
+            <template #default="{ row }">
+              ¥{{ (row.purchasePrice || 0).toFixed(2) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="小计" width="90" align="center">
+            <template #default="{ row }">
+              <span class="subtotal-val">¥{{ ((row.purchaseQty || 0) * (row.purchasePrice || 0)).toFixed(2) }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <!-- 汇总栏 -->
+      <div class="order-summary-bar">
+        <div class="summary-stat">
+          <span class="stat-label">商品种类</span>
+          <span class="stat-value">{{ suggestions.length }} 种</span>
         </div>
-        <div class="summary-item">
-          <span class="label">进货总数</span>
-          <span class="value">{{ totalQuantity }} 件</span>
+        <div class="summary-stat">
+          <span class="stat-label">进货总数</span>
+          <span class="stat-value">{{ totalQuantity }} 件</span>
         </div>
-        <div class="summary-item highlight">
-          <span class="label">进货总额</span>
-          <span class="value">¥{{ formatMoney(totalAmount) }}</span>
+        <div class="summary-stat highlight">
+          <span class="stat-label">进货总额</span>
+          <span class="stat-value">¥{{ formatMoney(totalAmount) }}</span>
         </div>
       </div>
 
@@ -222,7 +269,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Document, Goods, Box, Money, Calendar, Refresh, Download, Warning, AlarmClock } from '@element-plus/icons-vue'
-import { generateSuggestions, getSuggestionList, getSuggestionSummary, ignoreSuggestion } from '@/api/restocking'
+import { generateSuggestions, getSuggestionList, getSuggestionSummary, ignoreSuggestion, adjustSuggestionQuantity } from '@/api/restocking'
 import { createPurchaseOrder } from '@/api/restocking'
 
 const router = useRouter()
@@ -236,6 +283,12 @@ const predictDate = ref('')
 // 灯位筛选：0=全部, 1=仅红灯, 2=仅黄灯
 const lightFilter = ref(0)
 
+// 分页配置
+const pagination = reactive({
+  currentPage: 1,
+  pageSize: 10
+})
+
 // 统计数据
 const redCount = ref(0)
 const yellowCount = ref(0)
@@ -243,10 +296,16 @@ const yellowCount = ref(0)
 // 进货建议列表
 const suggestions = ref([])
 
+// 分页后的数据（计算属性）
+const paginatedSuggestions = computed(() => {
+  const start = (pagination.currentPage - 1) * pagination.pageSize
+  const end = start + pagination.pageSize
+  return suggestions.value.slice(start, end)
+})
+
 // 进货单弹窗
 const orderDialogVisible = ref(false)
 const orderForm = reactive({
-  supplier: '',
   expectedDate: '',
   remark: ''
 })
@@ -266,18 +325,15 @@ const formatMoney = (value) => {
 }
 
 // 表格合计
-const getSummary = ({ columns, data }) => {
-  const sums = []
-  columns.forEach((column, index) => {
-    if (index === 0) {
-      sums[index] = '合计'
-      return
+const getSummary = ({ columns }) => {
+  const totalPages = Math.ceil(suggestions.value.length / pagination.pageSize)
+  const sums = columns.map((column, index) => {
+    if (index === 0) return '合计'
+    if (column.label === '商品信息') {
+      return `共 ${suggestions.value.length} 项，第 ${pagination.currentPage} / ${totalPages} 页`
     }
-    if (column.label === '小计') {
-      sums[index] = '¥' + formatMoney(totalAmount.value)
-    } else {
-      sums[index] = ''
-    }
+    if (column.label === '小计') return '¥' + formatMoney(totalAmount.value)
+    return ''
   })
   return sums
 }
@@ -321,6 +377,7 @@ const fetchSuggestions = async () => {
 
 // 灯位筛选变更
 const handleLightFilterChange = () => {
+  pagination.currentPage = 1  // 重置到第一页
   fetchSuggestions()
 }
 
@@ -331,6 +388,7 @@ const handleRefresh = async () => {
   try {
     const res = await generateSuggestions()
     if (res.code === 200) {
+      pagination.currentPage = 1  // 重置到第一页
       ElMessage.success(res.data.message || '进货建议已更新')
       await fetchSuggestions()
     }
@@ -342,28 +400,83 @@ const handleRefresh = async () => {
   }
 }
 
-// 导出清单
+// 导出清单（CSV）
 const handleExport = () => {
-  ElMessage.success('进货清单已导出')
+  if (suggestions.value.length === 0) {
+    ElMessage.warning('暂无数据可导出')
+    return
+  }
+
+  const headers = ['状态', '商品编码', '商品名称', '分类', '日均销量', '当前库存', '安全库存', '目标库存', '进货数量', '进货单价(元)', '小计(元)']
+  const rows = suggestions.value.map(item => [
+    item.lightStatus === 1 ? '红灯' : '黄灯',
+    item.productCode || '',
+    item.productName || '',
+    item.categoryName || '',
+    item.dailySales ? item.dailySales.toFixed(1) : '0',
+    item.currentStock ?? 0,
+    item.safetyStock ?? 0,
+    item.targetStock ?? 0,
+    item.purchaseQty ?? 0,
+    (item.purchasePrice || 0).toFixed(2),
+    ((item.purchaseQty || 0) * (item.purchasePrice || 0)).toFixed(2)
+  ])
+
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  const date = new Date().toISOString().slice(0, 10)
+  link.href = url
+  link.download = `进货建议清单_${date}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
+
+  ElMessage.success(`已导出 ${suggestions.value.length} 条进货建议`)
 }
 
 // 移除商品（忽略建议）
-const handleRemove = async (index) => {
-  const item = suggestions.value[index]
+const handleRemove = async (item) => {
   try {
     const res = await ignoreSuggestion(item.id)
     if (res.code === 200) {
-      suggestions.value.splice(index, 1)
+      const idx = suggestions.value.findIndex(s => s.id === item.id)
+      if (idx !== -1) suggestions.value.splice(idx, 1)
       // 更新统计
-      if (item.lightStatus === 1) {
-        redCount.value--
-      } else {
-        yellowCount.value--
+      if (item.lightStatus === 1) redCount.value--
+      else yellowCount.value--
+      ElMessage.success('已移除')
+      // 如果当前页数据为空，回到上一页
+      if (paginatedSuggestions.value.length === 0 && pagination.currentPage > 1) {
+        pagination.currentPage--
       }
-      ElMessage.success('已忽略该商品')
     }
   } catch (error) {
-    ElMessage.error('操作失败')
+    console.error('移除失败:', error)
+    ElMessage.error('移除失败')
+  }
+}
+
+// 分页事件处理
+const handleSizeChange = (val) => {
+  pagination.pageSize = val
+  pagination.currentPage = 1  // 重置到第一页
+}
+
+const handleCurrentChange = (val) => {
+  pagination.currentPage = val
+}
+
+// 修改进货量（持久化到后端）
+const handleQtyChange = async (row) => {
+  if (!row.id || !row.purchaseQty) return
+  try {
+    await adjustSuggestionQuantity(row.id, row.purchaseQty)
+  } catch (error) {
+    ElMessage.error('保存进货量失败')
   }
 }
 
@@ -583,6 +696,14 @@ onMounted(() => {
     font-weight: 600;
     color: #1e293b;
   }
+
+  .pagination-wrapper {
+    display: flex;
+    justify-content: center;
+    padding: 20px 0;
+    margin-top: 16px;
+    border-top: 1px solid #f1f5f9;
+  }
 }
 
 .total-bar {
@@ -616,34 +737,65 @@ onMounted(() => {
 }
 
 .order-form {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
-.order-summary {
+.order-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 10px;
+  padding-left: 8px;
+  border-left: 3px solid #3B82F6;
+}
+
+.order-detail-table {
+  margin-bottom: 16px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #f1f5f9;
+
+  .qty-value {
+    font-weight: 600;
+    color: #3B82F6;
+  }
+
+  .subtotal-val {
+    font-weight: 600;
+    color: #1e293b;
+  }
+}
+
+.order-summary-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 32px;
   background: #f8fafc;
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 10px;
+  padding: 14px 20px;
 
-  .summary-item {
+  .summary-stat {
     display: flex;
-    justify-content: space-between;
-    padding: 10px 0;
-    border-bottom: 1px dashed #e4e7ed;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
 
-    &:last-child {
-      border-bottom: none;
+    .stat-label {
+      font-size: 12px;
+      color: #94a3b8;
     }
 
-    .label {
-      color: #64748b;
-    }
-    .value {
-      font-weight: 600;
+    .stat-value {
+      font-size: 15px;
+      font-weight: 700;
       color: #1e293b;
     }
 
-    &.highlight .value {
-      font-size: 18px;
+    &.highlight .stat-value {
+      font-size: 20px;
       color: #EF4444;
     }
   }

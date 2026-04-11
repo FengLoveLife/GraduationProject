@@ -10,6 +10,8 @@ import com.saul.forecast.service.IForecastResultService;
 import com.saul.forecast.vo.ForecastCompareVO;
 import com.saul.forecast.vo.ForecastResultVO;
 import com.saul.product.entity.Product;
+import com.saul.product.entity.ProductCategory;
+import com.saul.product.mapper.ProductCategoryMapper;
 import com.saul.product.mapper.ProductMapper;
 import com.saul.sales.mapper.SalesOrderItemMapper;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,7 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         implements IForecastResultService {
 
     private final ProductMapper productMapper;
+    private final ProductCategoryMapper productCategoryMapper;
     private final RestTemplate restTemplate;
     private final SalesOrderItemMapper salesOrderItemMapper;
 
@@ -397,19 +400,41 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
     private List<ForecastResultVO> convertToVOList(List<ForecastResult> results, String stockStatusFilter) {
         List<ForecastResultVO> voList = new ArrayList<>();
 
+        // 收集所有商品ID和分类ID
         Set<Long> productIds = new HashSet<>();
+        Set<Long> categoryIds = new HashSet<>();
         for (ForecastResult result : results) {
-            if (result.getProductId() != null) {
-                productIds.add(result.getProductId());
-            }
+            if (result.getProductId() != null) productIds.add(result.getProductId());
+            if (result.getCategoryId() != null) categoryIds.add(result.getCategoryId());
         }
 
+        // 批量查商品（库存、安全库存）
         Map<Long, Product> productMap = new HashMap<>();
         if (!productIds.isEmpty()) {
-            List<Product> products = productMapper.selectBatchIds(productIds);
-            for (Product product : products) {
-                productMap.put(product.getId(), product);
+            productMapper.selectBatchIds(productIds).forEach(p -> productMap.put(p.getId(), p));
+        }
+
+        // 批量查分类（补货周期）
+        Map<Long, Integer> cycleMap = new HashMap<>();
+        if (!categoryIds.isEmpty()) {
+            productCategoryMapper.selectBatchIds(categoryIds)
+                    .forEach(c -> cycleMap.put(c.getId(),
+                            c.getRestockCycleDays() != null ? c.getRestockCycleDays() : 7));
+        }
+
+        // 查过去30天历史日均销量（按商品）
+        Map<Long, Double> histAvgMap = new HashMap<>();
+        try {
+            String endDate = LocalDate.now().toString();
+            String startDate = LocalDate.now().minusDays(30).toString();
+            List<Map<String, Object>> avgList = salesOrderItemMapper.getProductDailyAvgBatch(startDate, endDate);
+            for (Map<String, Object> row : avgList) {
+                Long pid = ((Number) row.get("productId")).longValue();
+                Double avg = row.get("dailyAvg") != null ? ((Number) row.get("dailyAvg")).doubleValue() : 0.0;
+                histAvgMap.put(pid, avg);
             }
+        } catch (Exception e) {
+            log.warn("查询历史日均失败，将跳过: {}", e.getMessage());
         }
 
         for (ForecastResult result : results) {
@@ -423,18 +448,25 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
             vo.setCategoryName(result.getCategoryName());
             vo.setPredictedQuantity(result.getPredictedQuantity());
 
+            // 补货周期
+            Integer cycleDays = cycleMap.getOrDefault(result.getCategoryId(), 7);
+            vo.setRestockCycleDays(cycleDays);
+
+            // 历史日均（前端用于混合公式，回退到预测值）
+            double histAvg = histAvgMap.getOrDefault(result.getProductId(),
+                    result.getPredictedQuantity() != null ? result.getPredictedQuantity().doubleValue() : 0.0);
+            vo.setHistoricalDailyAvg(histAvg);
+
             Product product = productMap.get(result.getProductId());
             if (product != null) {
                 vo.setCurrentStock(product.getStock());
                 vo.setSafetyStock(product.getSafetyStock());
-
+                // suggestedPurchase 由前端按周期公式计算，这里给默认值兜底
                 int suggestedPurchase = Math.max(0,
                         result.getPredictedQuantity() + product.getSafetyStock() - product.getStock());
                 vo.setSuggestedPurchase(suggestedPurchase);
-
-                String stockStatus = calculateStockStatus(product.getStock(), product.getSafetyStock(),
-                        result.getPredictedQuantity());
-                vo.setStockStatus(stockStatus);
+                vo.setStockStatus(calculateStockStatus(
+                        product.getStock(), product.getSafetyStock(), histAvg, cycleDays));
             } else {
                 vo.setCurrentStock(0);
                 vo.setSafetyStock(0);
@@ -443,9 +475,7 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
             }
 
             if (stockStatusFilter != null && !stockStatusFilter.isEmpty()) {
-                if (!stockStatusFilter.equals(vo.getStockStatus())) {
-                    continue;
-                }
+                if (!stockStatusFilter.equals(vo.getStockStatus())) continue;
             }
 
             voList.add(vo);
@@ -454,20 +484,25 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         return voList;
     }
 
-    private String calculateStockStatus(Integer currentStock, Integer safetyStock, Integer predictedQuantity) {
+    /**
+     * 三灯策略（统一标准）：
+     * 红灯 warning     : stock <= safetyStock              库存触底，必须立即补
+     * 黄灯 needPurchase: stock <= safetyStock + dailyAvg×cycle×30%  本周期70%已消耗，该下单了
+     * 绿灯 sufficient  : 其余                              库存充足
+     */
+    private String calculateStockStatus(Integer currentStock, Integer safetyStock,
+                                        Double dailyAvg, Integer restockCycleDays) {
         if (currentStock == null) currentStock = 0;
         if (safetyStock == null) safetyStock = 0;
-        if (predictedQuantity == null) predictedQuantity = 0;
+        if (dailyAvg == null || dailyAvg <= 0) dailyAvg = 0.0;
+        if (restockCycleDays == null || restockCycleDays <= 0) restockCycleDays = 7;
 
-        // 先判断最危急的：库存已低于安全库存
-        if (currentStock < safetyStock) {
-            return "warning";
-        }
+        // 红灯：已触及安全底线
+        if (currentStock <= safetyStock) return "warning";
 
-        // 再判断：库存不足以覆盖预测销量+安全库存
-        if (currentStock < predictedQuantity + safetyStock) {
-            return "needPurchase";
-        }
+        // 黄灯线 = 安全库存 + 周期日均 × 30%
+        double yellowLine = safetyStock + dailyAvg * restockCycleDays * 0.3;
+        if (currentStock <= yellowLine) return "needPurchase";
 
         return "sufficient";
     }

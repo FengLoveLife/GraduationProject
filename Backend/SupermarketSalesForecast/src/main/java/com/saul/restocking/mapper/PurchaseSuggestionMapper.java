@@ -99,4 +99,31 @@ public interface PurchaseSuggestionMapper extends BaseMapper<PurchaseSuggestion>
      */
     @Delete("DELETE FROM purchase_suggestion WHERE status = 0")
     void clearPendingSuggestions();
+
+    /**
+     * 批量查询所有商品过去N天的历史日均销量
+     * @param days 天数
+     * @return productId → {totalQuantity, salesDays}
+     */
+    @Select("SELECT product_id as productId, " +
+            "SUM(quantity) as totalQuantity, " +
+            "COUNT(DISTINCT sale_date) as salesDays " +
+            "FROM sales_order_item " +
+            "WHERE sale_date >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY) " +
+            "GROUP BY product_id")
+    List<Map<String, Object>> batchGetHistoricalSales(@Param("days") Integer days);
+
+    /**
+     * 批量查询所有商品未来N天的预测日均销量
+     * @param days 天数
+     * @return productId → {totalPredicted, forecastDays}
+     */
+    @Select("SELECT product_id as productId, " +
+            "SUM(predicted_quantity) as totalPredicted, " +
+            "COUNT(DISTINCT forecast_date) as forecastDays " +
+            "FROM forecast_result " +
+            "WHERE forecast_date >= CURDATE() " +
+            "AND forecast_date < DATE_ADD(CURDATE(), INTERVAL #{days} DAY) " +
+            "GROUP BY product_id")
+    List<Map<String, Object>> batchGetPredictedSales(@Param("days") Integer days);
 }

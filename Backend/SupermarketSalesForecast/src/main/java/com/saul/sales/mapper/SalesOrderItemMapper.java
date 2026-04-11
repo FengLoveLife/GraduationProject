@@ -95,6 +95,18 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
     Map<String, Object> getProductSalesSummary(@Param("productId") Long productId);
 
     /**
+     * 批量查询多个商品在指定日期范围内的日均销量
+     * 用于计算历史日均，支撑不同补货周期的进货量公式
+     */
+    @Select("SELECT product_id as productId, " +
+            "ROUND(SUM(quantity) / NULLIF(COUNT(DISTINCT sale_date), 0), 2) as dailyAvg " +
+            "FROM sales_order_item " +
+            "WHERE sale_date BETWEEN #{startDate} AND #{endDate} " +
+            "GROUP BY product_id")
+    List<Map<String, Object>> getProductDailyAvgBatch(@Param("startDate") String startDate,
+                                                      @Param("endDate") String endDate);
+
+    /**
      * 查询商品近N天的销售趋势（按日期汇总）
      */
     @Select("SELECT DATE(sale_date) as saleDate, " +

@@ -94,12 +94,23 @@ def get_predictor():
     """
     获取预测器实例（单例，只加载模型）
 
+    若模型文件不存在，自动使用最新销售数据训练后再加载。
     注意：此预测器不持有数据库连接，数据库连接在每次请求时单独创建
     """
     global _predictor
     if _predictor is None:
+        # 尝试直接加载
         try:
             _predictor = RollingPredictor.load_model_only()
+        except (ValueError, FileNotFoundError):
+            # 模型文件不存在或加载失败 → 自动训练
+            print("[预测服务] 未找到模型文件，开始自动训练...")
+            try:
+                train_and_save_model()
+                _predictor = RollingPredictor.load_model_only()
+                print("[预测服务] 自动训练完成，模型已就绪")
+            except Exception as train_err:
+                raise HTTPException(status_code=500, detail=f"自动训练失败: {str(train_err)}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"模型加载失败: {str(e)}")
     return _predictor

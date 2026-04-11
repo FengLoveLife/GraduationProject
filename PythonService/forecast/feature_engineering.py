@@ -26,10 +26,6 @@ class FeatureEngineer:
 
     # ==================== 配置参数 ====================
 
-    # 基准日期（预测的起点）
-    # 开发阶段可手动指定，生产阶段使用 datetime.now()
-    BASE_DATE = "2026-04-01"  # TODO: 生产环境改为 datetime.now().strftime('%Y-%m-%d')
-
     # 训练数据天数（用多少历史数据训练）
     TRAINING_DAYS = 90  # 90天历史数据
 
@@ -46,10 +42,33 @@ class FeatureEngineer:
         self.db = db or DatabaseManager()
         self.db.connect()
 
+        # 基准日期：动态从数据库取最新销售日期，确保每次训练都用最新数据
+        self.BASE_DATE = self._get_latest_sale_date()
+
         # 缓存数据
         self._sales_cache = None  # 销量数据缓存
         self._calendar_cache = None  # 日历因子缓存
         self._products_cache = None  # 商品信息缓存
+
+    def _get_latest_sale_date(self) -> str:
+        """
+        从数据库获取最新的销售日期作为训练基准日期
+
+        Returns:
+            最新销售日期 'YYYY-MM-DD'，若无数据则返回今天
+        """
+        try:
+            result = self.db.query_one("SELECT MAX(sale_date) as max_date FROM sales_order_item")
+            if result and result['max_date']:
+                latest = str(result['max_date'])
+                print(f"[特征工程] 基准日期（动态）: {latest}")
+                return latest
+        except Exception as e:
+            print(f"[特征工程] 获取最新销售日期失败: {e}")
+        # 兜底：使用今天
+        fallback = datetime.now().strftime('%Y-%m-%d')
+        print(f"[特征工程] 基准日期（兜底）: {fallback}")
+        return fallback
 
     def close(self):
         """关闭数据库连接"""
@@ -473,18 +492,18 @@ class FeatureEngineer:
     # ==================== 工具方法 ====================
 
     def get_base_date(self) -> str:
-        """获取基准日期"""
+        """获取当前基准日期（动态值，等于数据库最新销售日期）"""
         return self.BASE_DATE
 
     def set_base_date(self, date_str: str):
         """
-        设置基准日期（用于测试或模拟）
+        手动覆盖基准日期（仅用于测试，生产环境由 _get_latest_sale_date 自动确定）
 
         Args:
             date_str: 日期 'YYYY-MM-DD'
         """
         self.BASE_DATE = date_str
-        print(f"[特征工程] 基准日期已设置为: {date_str}")
+        print(f"[特征工程] 基准日期已手动覆盖为: {date_str}")
 
 
 # ==================== 测试代码 ====================

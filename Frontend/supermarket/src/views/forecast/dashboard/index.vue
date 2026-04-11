@@ -16,6 +16,7 @@
             <div class="kpi-text">
               <div class="kpi-label">今日预测商品</div>
               <div class="kpi-value">{{ kpiData.totalProducts }}<span class="unit">个</span></div>
+              <div class="kpi-trend-placeholder"></div>
             </div>
             <div class="icon-wrapper">
               <el-icon><Goods /></el-icon>
@@ -251,9 +252,16 @@ const loadForecastResults = async () => {
       const results = res.data || []
       allForecastResults.value = results
       results.forEach(item => {
-        if (item.currentStock < item.safetyStock) { item.stockStatus = 'needPurchase'; item.lightStatus = 1 }
-        else if (item.currentStock < item.predictedQuantity + item.safetyStock) { item.stockStatus = 'warning'; item.lightStatus = 2 }
-        else { item.stockStatus = 'sufficient'; item.lightStatus = 0 }
+        const dailyAvg = item.historicalDailyAvg || item.predictedQuantity || 0
+        const cycle = item.restockCycleDays || 7
+        const yellowLine = item.safetyStock + dailyAvg * cycle * 0.3
+        if (item.currentStock <= item.safetyStock) {
+          item.stockStatus = 'warning';      item.lightStatus = 1  // 红灯：触底
+        } else if (item.currentStock <= yellowLine) {
+          item.stockStatus = 'needPurchase'; item.lightStatus = 2  // 黄灯：周期70%已消耗
+        } else {
+          item.stockStatus = 'sufficient';   item.lightStatus = 0  // 绿灯：充足
+        }
       })
       topProducts.value = [...results].sort((a, b) => b.predictedQuantity - a.predictedQuantity).slice(0, 10)
     }
@@ -333,29 +341,88 @@ const initStatusChart = () => {
   if (!statusChartRef.value) return
   if (!statusChart) statusChart = echarts.init(statusChartRef.value)
 
-  // 从进货建议数据获取红黄灯数量
-  const redCount = suggestionSummary.value.redCount || 0
-  const yellowCount = suggestionSummary.value.yellowCount || 0
-  // 绿灯数量 = 总商品数 - 红灯 - 黄灯（这里用预测商品数近似）
-  const greenCount = Math.max(0, (kpiData.totalProducts || 0) - redCount - yellowCount)
+  // 从实时预测结果统计三灯数量，与销量预测页保持一致
+  const redCount    = allForecastResults.value.filter(i => i.stockStatus === 'warning').length
+  const yellowCount = allForecastResults.value.filter(i => i.stockStatus === 'needPurchase').length
+  const greenCount  = allForecastResults.value.filter(i => i.stockStatus === 'sufficient').length
 
   const option = {
-    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-    legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { color: '#606266' } },
+    tooltip: { 
+      trigger: 'item',
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      borderColor: '#eee',
+      borderWidth: 1,
+      textStyle: { color: '#333' }
+    },
+    legend: { 
+      orient: 'vertical', 
+      right: 15, 
+      top: 15, 
+      textStyle: { color: '#606266' } 
+    },
     series: [{
       type: 'pie',
-      radius: ['45%', '70%'],
-      center: ['40%', '50%'],
+      radius: ['50%', '75%'],
+      center: ['35%', '50%'],
       avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 10, borderColor: '#fff', borderWidth: 2 },
-      label: { show: false },
-      emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
+      itemStyle: { 
+        borderRadius: 10, 
+        borderColor: '#fff', 
+        borderWidth: 3 
+      },
+      label: { 
+        show: false,
+        position: 'center'
+      },
+      emphasis: { 
+        label: { 
+          show: false
+        },
+        itemStyle: {
+          shadowBlur: 10,
+          shadowOffsetX: 0,
+          shadowColor: 'rgba(0, 0, 0, 0.2)'
+        }
+      },
+      labelLine: { show: false },
       data: [
         { value: greenCount, name: '库存充足', itemStyle: { color: '#67C23A' } },
-        { value: yellowCount, name: '黄灯（顺带补货）', itemStyle: { color: '#E6A23C' } },
-        { value: redCount, name: '红灯（必须补货）', itemStyle: { color: '#F56C6C' } }
+        { value: yellowCount, name: '库存紧张', itemStyle: { color: '#E6A23C' } },
+        { value: redCount, name: '库存告急', itemStyle: { color: '#F56C6C' } }
       ]
-    }]
+    }],
+    // 添加图形中心文字
+    graphic: {
+      type: 'group',
+      left: '35%',
+      top: '45%',
+      children: [
+        {
+          type: 'text',
+          style: {
+            text: '商品总数',
+            textAlign: 'center',
+            textLineHeight: 20,
+            fill: '#909399',
+            font: '13px sans-serif'
+          },
+          top: -10
+        },
+        {
+          type: 'text',
+          style: {
+            text: (redCount + yellowCount + greenCount).toString(),
+            textAlign: 'center',
+            textLineHeight: 36,
+            fill: '#1e293b',
+            font: 'bold 28px sans-serif',
+            textStroke: '#fff',
+            textStrokeWidth: 3
+          },
+          top: 5
+        }
+      ]
+    }
   }
   statusChart.setOption(option)
 }
@@ -384,7 +451,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', handleResize); tren
 <style scoped lang="scss">
 .forecast-dashboard { padding: 24px; background-color: #f8fafc; min-height: calc(100vh - 100px); }
 .header-section { margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start; .title { font-size: 24px; font-weight: 800; color: #1e293b; margin: 0; } .subtitle { font-size: 14px; color: #64748b; margin: 8px 0 0; } .model-info { display: flex; gap: 10px; .model-tag, .status-tag { display: flex; align-items: center; gap: 4px; padding: 8px 12px; font-weight: 500; } } }
-.kpi-section { margin-bottom: 24px; .kpi-card { border-radius: 16px; border: none; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04); transition: all 0.3s ease; overflow: hidden; &.clickable { cursor: pointer; &:hover { transform: translateY(-4px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); } } :deep(.el-card__body) { padding: 20px; } .kpi-card-content { display: flex; justify-content: space-between; align-items: center; .kpi-text { .kpi-label { font-size: 14px; color: #64748b; margin-bottom: 8px; } .kpi-value { font-size: 32px; font-weight: 800; color: #1e293b; margin-bottom: 8px; &.warning { color: #E6A23C; } } .kpi-trend { font-size: 12px; color: #909399; display: flex; align-items: center; gap: 4px; &.up { color: #67C23A; } &.down { color: #F56C6C; } &.flat { color: #909399; } } } .icon-wrapper { width: 64px; height: 64px; border-radius: 16px; display: flex; justify-content: center; align-items: center; font-size: 28px; } } &.kpi-blue { background: linear-gradient(135deg, #EBF5FF 0%, #DBEAFE 100%); .icon-wrapper { background: rgba(59, 130, 246, 0.15); color: #3B82F6; } } &.kpi-green { background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); .icon-wrapper { background: rgba(16, 185, 129, 0.15); color: #10B981; } } &.kpi-orange { background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%); .icon-wrapper { background: rgba(245, 158, 11, 0.15); color: #F59E0B; } } &.kpi-purple { background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%); .icon-wrapper { background: rgba(139, 92, 246, 0.15); color: #8B5CF6; } } } }
+.kpi-section { margin-bottom: 24px; .kpi-card { border-radius: 16px; border: none; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04); transition: all 0.3s ease; overflow: hidden; &.clickable { cursor: pointer; &:hover { transform: translateY(-4px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); } } :deep(.el-card__body) { padding: 20px; } .kpi-card-content { display: flex; justify-content: space-between; align-items: center; .kpi-text { .kpi-label { font-size: 14px; color: #64748b; margin-bottom: 8px; } .kpi-value { font-size: 32px; font-weight: 800; color: #1e293b; margin-bottom: 8px; &.warning { color: #E6A23C; } } .kpi-trend { font-size: 12px; color: #909399; display: flex; align-items: center; gap: 4px; &.up { color: #67C23A; } &.down { color: #F56C6C; } &.flat { color: #909399; } } .kpi-trend-placeholder { height: 20px; } } .icon-wrapper { width: 64px; height: 64px; border-radius: 16px; display: flex; justify-content: center; align-items: center; font-size: 28px; } } &.kpi-blue { background: linear-gradient(135deg, #EBF5FF 0%, #DBEAFE 100%); .icon-wrapper { background: rgba(59, 130, 246, 0.15); color: #3B82F6; } } &.kpi-green { background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); .icon-wrapper { background: rgba(16, 185, 129, 0.15); color: #10B981; } } &.kpi-orange { background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%); .icon-wrapper { background: rgba(245, 158, 11, 0.15); color: #F59E0B; } } &.kpi-purple { background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%); .icon-wrapper { background: rgba(139, 92, 246, 0.15); color: #8B5CF6; } } } }
 .chart-row { margin-bottom: 20px; }
 .chart-card { border-radius: 16px; border: none; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04); :deep(.el-card__header) { border-bottom: 1px solid #f1f5f9; padding: 16px 20px; } .card-header { display: flex; justify-content: space-between; align-items: center; .header-left { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; color: #334155; .header-icon { font-size: 20px; color: #409EFF; } } } .chart-box { height: 300px; width: 100%; } }
 .action-card { border-radius: 16px; border: none; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04); :deep(.el-card__header) { border-bottom: 1px solid #f1f5f9; padding: 16px 20px; font-size: 16px; font-weight: 700; color: #334155; } .action-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; padding: 10px 0; } .action-item { display: flex; align-items: center; gap: 16px; padding: 16px 20px; background: #f8fafc; border-radius: 12px; cursor: pointer; transition: all 0.3s ease; &:hover { background: #f1f5f9; transform: translateY(-2px); } .action-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; justify-content: center; align-items: center; font-size: 24px; &.action-icon-blue { background: rgba(59, 130, 246, 0.1); color: #3B82F6; } &.action-icon-orange { background: rgba(245, 158, 11, 0.1); color: #F59E0B; } &.action-icon-green { background: rgba(16, 185, 129, 0.1); color: #10B981; } &.action-icon-purple { background: rgba(139, 92, 246, 0.1); color: #8B5CF6; } } .action-text { .action-title { font-size: 15px; font-weight: 600; color: #1e293b; margin-bottom: 4px; } .action-desc { font-size: 12px; color: #64748b; } } } }
