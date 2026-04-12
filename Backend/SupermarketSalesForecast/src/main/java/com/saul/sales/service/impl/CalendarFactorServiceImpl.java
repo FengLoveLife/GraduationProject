@@ -111,6 +111,13 @@ public class CalendarFactorServiceImpl extends ServiceImpl<CalendarFactorMapper,
         this.updateById(factor);
     }
 
+    @Override
+    public CalendarFactorVO getVOById(Long id) {
+        CalendarFactor entity = super.getById(id);
+        if (entity == null) return null;
+        return convertToVO(entity);
+    }
+
     /**
      * 转换为VO
      */

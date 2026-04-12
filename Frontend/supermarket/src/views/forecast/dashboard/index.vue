@@ -68,7 +68,7 @@
             <div class="card-header">
               <div class="header-left">
                 <el-icon class="header-icon"><DataLine /></el-icon>
-                <span>预测销量趋势 vs 实际销量</span>
+                <span>预测销售额趋势 vs 实际销售额</span>
               </div>
               <div class="header-right">
                 <el-radio-group v-model="trendRange" size="small">
@@ -309,18 +309,53 @@ const initTrendChart = async () => {
 
     const trendData = res.data || []
     const dates = trendData.map(item => item.date.substring(5))
-    const predicted = trendData.map(item => item.predictedQuantity || 0)
-    const actual = trendData.map(item => item.actualQuantity || 0)
+    // 销售额（保留 2 位小数，便于图表展示）
+    const predicted = trendData.map(item => Number(Number(item.predictedAmount || 0).toFixed(2)))
+    const actual = trendData.map(item => Number(Number(item.actualAmount || 0).toFixed(2)))
+
+    // Y 轴刻度格式化：≥10000 → X.X万，否则原值
+    const formatYAxis = (val) => {
+      if (val >= 10000) return (val / 10000).toFixed(1) + '万'
+      return val
+    }
+    // tooltip 金额格式化
+    const formatMoney = (val) => {
+      const n = Number(val) || 0
+      if (n >= 10000) return '¥' + (n / 10000).toFixed(2) + '万'
+      return '¥' + n.toFixed(2)
+    }
 
     const option = {
-      tooltip: { trigger: 'axis', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#e4e7ed', textStyle: { color: '#303133' } },
-      legend: { data: ['实际销量', '预测销量'], top: 10, textStyle: { color: '#606266' } },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(255,255,255,0.95)',
+        borderColor: '#e4e7ed',
+        textStyle: { color: '#303133' },
+        formatter: (params) => {
+          if (!params || params.length === 0) return ''
+          let html = `<div style="font-weight:600;margin-bottom:4px;">${params[0].axisValue}</div>`
+          params.forEach(p => {
+            html += `<div style="display:flex;align-items:center;margin:2px 0;">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:8px;"></span>
+              <span style="flex:1;">${p.seriesName}</span>
+              <span style="font-weight:600;margin-left:16px;">${formatMoney(p.value)}</span>
+            </div>`
+          })
+          return html
+        }
+      },
+      legend: { data: ['实际销售额', '预测销售额'], top: 10, textStyle: { color: '#606266' } },
       grid: { left: '3%', right: '4%', bottom: '3%', top: 60, containLabel: true },
       xAxis: { type: 'category', boundaryGap: false, data: dates, axisLine: { lineStyle: { color: '#e4e7ed' } }, axisLabel: { color: '#909399' } },
-      yAxis: { type: 'value', axisLine: { show: false }, axisLabel: { color: '#909399' }, splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } } },
+      yAxis: {
+        type: 'value',
+        axisLine: { show: false },
+        axisLabel: { color: '#909399', formatter: formatYAxis },
+        splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } }
+      },
       series: [
-        { name: '实际销量', type: 'line', smooth: true, symbol: 'circle', symbolSize: 8, data: actual, lineStyle: { color: '#409EFF', width: 3 }, itemStyle: { color: '#409EFF' }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(64,158,255,0.3)' }, { offset: 1, color: 'rgba(64,158,255,0.05)' }]) } },
-        { name: '预测销量', type: 'line', smooth: true, symbol: 'diamond', symbolSize: 8, data: predicted, lineStyle: { color: '#67C23A', width: 3, type: 'dashed' }, itemStyle: { color: '#67C23A' } }
+        { name: '实际销售额', type: 'line', smooth: true, symbol: 'circle', symbolSize: 8, data: actual, lineStyle: { color: '#409EFF', width: 3 }, itemStyle: { color: '#409EFF' }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(64,158,255,0.3)' }, { offset: 1, color: 'rgba(64,158,255,0.05)' }]) } },
+        { name: '预测销售额', type: 'line', smooth: true, symbol: 'diamond', symbolSize: 8, data: predicted, lineStyle: { color: '#67C23A', width: 3, type: 'dashed' }, itemStyle: { color: '#67C23A' } }
       ]
     }
     trendChart.setOption(option)

@@ -157,8 +157,8 @@ public class InventoryLogServiceImpl extends ServiceImpl<InventoryLogMapper, Inv
         int beforeStock = product.getStock() == null ? 0 : product.getStock();
         int afterStock = beforeStock + changeAmount;
 
-        // 3. 销售出库防负库存校验
-        if (type == 2 && afterStock < 0) {
+        // 3. 防负库存校验（所有扣减类型均适用）
+        if (afterStock < 0) {
             throw new RuntimeException("商品[" + product.getName() + "]当前库存(" + beforeStock + ")不足以扣减(" + Math.abs(changeAmount) + ")");
         }
 

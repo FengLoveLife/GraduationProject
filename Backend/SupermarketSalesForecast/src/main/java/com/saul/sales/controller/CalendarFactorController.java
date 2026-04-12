@@ -58,10 +58,6 @@ public class CalendarFactorController {
      */
     @GetMapping("/{id}")
     public Result<CalendarFactorVO> getById(@PathVariable Long id) {
-        CalendarFactorVO vo = calendarFactorService.getMonthData(2026, 1).stream()
-                .filter(v -> v.getId().equals(id))
-                .findFirst()
-                .orElse(null);
-        return Result.success(vo);
+        return Result.success(calendarFactorService.getVOById(id));
     }
 }

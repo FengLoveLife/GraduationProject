@@ -22,7 +22,7 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
     @Select("SELECT sale_date as saleDate, SUM(subtotal_profit) as dailyProfit FROM sales_order_item WHERE sale_date BETWEEN #{startDate} AND #{endDate} GROUP BY sale_date ORDER BY sale_date")
     List<Map<String, Object>> getDailyProfit(@Param("startDate") String startDate, @Param("endDate") String endDate);
 
-    @Select("SELECT product_name as productName, SUM(quantity) as quantity, SUM(subtotal_amount) as amount FROM sales_order_item WHERE sale_date BETWEEN #{startDate} AND #{endDate} GROUP BY product_name ORDER BY quantity DESC LIMIT 10")
+    @Select("SELECT product_id as productId, MAX(product_name) as productName, SUM(quantity) as quantity, SUM(subtotal_amount) as amount FROM sales_order_item WHERE sale_date BETWEEN #{startDate} AND #{endDate} GROUP BY product_id ORDER BY quantity DESC LIMIT 10")
     List<TopProductVO> getTop10Products(@Param("startDate") String startDate, @Param("endDate") String endDate);
 
     // 通过 product_id → product → 二级分类 → 一级分类，与其他分类查询保持一致
@@ -58,7 +58,7 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
     /**
      * 查询日期范围内的实际销售数据（按日期汇总）
      */
-    @Select("SELECT DATE(sale_date) as saleDate, SUM(quantity) as actualQuantity FROM sales_order_item WHERE sale_date BETWEEN #{startDate} AND #{endDate} GROUP BY DATE(sale_date)")
+    @Select("SELECT DATE(sale_date) as saleDate, SUM(quantity) as actualQuantity, SUM(subtotal_amount) as actualAmount FROM sales_order_item WHERE sale_date BETWEEN #{startDate} AND #{endDate} GROUP BY DATE(sale_date)")
     List<Map<String, Object>> getActualSalesSumByDate(@Param("startDate") String startDate, @Param("endDate") String endDate);
 
     /**

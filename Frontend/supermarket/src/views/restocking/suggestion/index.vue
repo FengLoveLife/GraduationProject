@@ -7,8 +7,8 @@
         <p class="subtitle">基于销量预测结果，智能计算最优进货量</p>
       </div>
       <div class="header-right">
-        <el-button type="success" :icon="Document" @click="handleGenerateOrder" :disabled="suggestions.length === 0">
-          生成进货单
+        <el-button type="success" :icon="Document" @click="handleGenerateOrder" :disabled="selectedRows.length === 0">
+          生成进货单（{{ selectedRows.length }}）
         </el-button>
       </div>
     </div>
@@ -81,6 +81,9 @@
             </el-radio-group>
           </div>
           <div class="header-right">
+            <el-button :type="allSelected ? 'warning' : 'default'" size="small" @click="handleSelectAll">
+              {{ allSelected ? '取消全选' : '全选' }}
+            </el-button>
             <el-button type="primary" :icon="Refresh" @click="handleRefresh" :loading="loading">生成进货建议</el-button>
             <el-button :icon="Download" @click="handleExport" :disabled="suggestions.length === 0">导出清单</el-button>
           </div>
@@ -101,8 +104,8 @@
       </div>
 
       <!-- 表格数据 -->
-      <el-table v-else :data="paginatedSuggestions" stripe style="width: 100%" show-summary :summary-method="getSummary">
-        <el-table-column type="index" label="#" width="50" align="center" />
+      <el-table ref="tableRef" v-else :data="paginatedSuggestions" stripe style="width: 100%" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="50" align="center" />
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="row.lightStatus === 1 ? 'danger' : 'warning'" effect="dark" size="small">
@@ -155,13 +158,6 @@
             <span class="subtotal">¥{{ ((row.purchaseQty || 0) * (row.purchasePrice || 0)).toFixed(2) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="80" align="center" fixed="right">
-          <template #default="{ row }">
-            <el-button type="danger" link size="small" @click="handleRemove(row)">
-              移除
-            </el-button>
-          </template>
-        </el-table-column>
       </el-table>
 
       <!-- 分页 -->
@@ -180,7 +176,8 @@
       <!-- 底部汇总 -->
       <div class="total-bar">
         <div class="total-left">
-          <span>已选择 <strong>{{ suggestions.length }}</strong> 种商品进货</span>
+          <span>已勾选 <strong>{{ selectedRows.length }}</strong> / 共 {{ suggestions.length }} 种商品</span>
+          <span v-if="selectedRows.length === 0" class="select-hint">请勾选需要进货的商品</span>
         </div>
         <div class="total-right">
           <span class="total-label">合计金额：</span>
@@ -208,10 +205,10 @@
       <!-- 进货明细表 -->
       <div class="order-detail-title">
         <span>进货明细</span>
-        <el-tag type="info" size="small" effect="plain">{{ suggestions.length }} 种商品</el-tag>
+        <el-tag type="info" size="small" effect="plain">{{ selectedRows.length }} 种商品</el-tag>
       </div>
       <div class="order-detail-table">
-        <el-table :data="suggestions" size="small" stripe max-height="280">
+        <el-table :data="selectedRows" size="small" stripe max-height="280">
           <el-table-column type="index" label="#" width="45" align="center" />
           <el-table-column label="状态" width="65" align="center">
             <template #default="{ row }">
@@ -244,7 +241,7 @@
       <div class="order-summary-bar">
         <div class="summary-stat">
           <span class="stat-label">商品种类</span>
-          <span class="stat-value">{{ suggestions.length }} 种</span>
+          <span class="stat-value">{{ selectedRows.length }} 种</span>
         </div>
         <div class="summary-stat">
           <span class="stat-label">进货总数</span>
@@ -265,7 +262,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Document, Goods, Box, Money, Calendar, Refresh, Download, Warning, AlarmClock } from '@element-plus/icons-vue'
@@ -310,13 +307,58 @@ const orderForm = reactive({
   remark: ''
 })
 
-// 计算属性
+// 选择模型（跨页持久化）
+const tableRef = ref(null)
+const selectedIds = ref(new Set())
+
+const selectedRows = computed(() =>
+  suggestions.value.filter(s => selectedIds.value.has(s.id))
+)
+
+const allSelected = computed(() =>
+  suggestions.value.length > 0 && selectedIds.value.size === suggestions.value.length
+)
+
+// 页面切换时恢复勾选状态
+watch(paginatedSuggestions, async () => {
+  await nextTick()
+  if (!tableRef.value) return
+  tableRef.value.clearSelection()
+  paginatedSuggestions.value.forEach(row => {
+    if (selectedIds.value.has(row.id)) {
+      tableRef.value.toggleRowSelection(row, true)
+    }
+  })
+})
+
+// 全选 / 取消全选
+const handleSelectAll = () => {
+  if (allSelected.value) {
+    selectedIds.value = new Set()
+    tableRef.value?.clearSelection()
+  } else {
+    selectedIds.value = new Set(suggestions.value.map(s => s.id))
+    paginatedSuggestions.value.forEach(row => tableRef.value?.toggleRowSelection(row, true))
+  }
+}
+
+// 处理表格选择变化（当前页）
+const handleSelectionChange = (rows) => {
+  const currentPageIds = new Set(paginatedSuggestions.value.map(r => r.id))
+  // 先清除当前页的选中状态
+  currentPageIds.forEach(id => selectedIds.value.delete(id))
+  // 再添加当前页新选中的
+  rows.forEach(r => selectedIds.value.add(r.id))
+  selectedIds.value = new Set(selectedIds.value)
+}
+
+// 计算属性（基于已选行）
 const totalQuantity = computed(() => {
-  return suggestions.value.reduce((sum, item) => sum + (item.purchaseQty || 0), 0)
+  return selectedRows.value.reduce((sum, item) => sum + (item.purchaseQty || 0), 0)
 })
 
 const totalAmount = computed(() => {
-  return suggestions.value.reduce((sum, item) => sum + (item.purchaseQty || 0) * (item.purchasePrice || 0), 0)
+  return selectedRows.value.reduce((sum, item) => sum + (item.purchaseQty || 0) * (item.purchasePrice || 0), 0)
 })
 
 // 格式化金额
@@ -360,6 +402,7 @@ const fetchSuggestions = async () => {
         ...item,
         purchaseQty: item.finalQuantity || item.suggestedQuantity
       }))
+      selectedIds.value = new Set()
     }
 
     if (summaryRes.code === 200 && summaryRes.data) {
@@ -438,28 +481,6 @@ const handleExport = () => {
   ElMessage.success(`已导出 ${suggestions.value.length} 条进货建议`)
 }
 
-// 移除商品（忽略建议）
-const handleRemove = async (item) => {
-  try {
-    const res = await ignoreSuggestion(item.id)
-    if (res.code === 200) {
-      const idx = suggestions.value.findIndex(s => s.id === item.id)
-      if (idx !== -1) suggestions.value.splice(idx, 1)
-      // 更新统计
-      if (item.lightStatus === 1) redCount.value--
-      else yellowCount.value--
-      ElMessage.success('已移除')
-      // 如果当前页数据为空，回到上一页
-      if (paginatedSuggestions.value.length === 0 && pagination.currentPage > 1) {
-        pagination.currentPage--
-      }
-    }
-  } catch (error) {
-    console.error('移除失败:', error)
-    ElMessage.error('移除失败')
-  }
-}
-
 // 分页事件处理
 const handleSizeChange = (val) => {
   pagination.pageSize = val
@@ -482,8 +503,8 @@ const handleQtyChange = async (row) => {
 
 // 生成进货单
 const handleGenerateOrder = () => {
-  if (suggestions.value.length === 0) {
-    ElMessage.warning('暂无需要进货的商品')
+  if (selectedRows.value.length === 0) {
+    ElMessage.warning('请先勾选需要进货的商品')
     return
   }
 
@@ -497,8 +518,8 @@ const handleGenerateOrder = () => {
 
 // 确认生成进货单
 const confirmGenerateOrder = async () => {
-  if (suggestions.value.length === 0) {
-    ElMessage.warning('暂无需要进货的商品')
+  if (selectedRows.value.length === 0) {
+    ElMessage.warning('请先勾选需要进货的商品')
     return
   }
 
@@ -507,7 +528,7 @@ const confirmGenerateOrder = async () => {
     const orderData = {
       expectedDate: orderForm.expectedDate,
       remark: orderForm.remark,
-      items: suggestions.value.map(item => ({
+      items: selectedRows.value.map(item => ({
         suggestionId: item.id,
         productId: item.productId,
         quantity: item.purchaseQty

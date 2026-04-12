@@ -256,8 +256,8 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         // 1. 查询预测数据
         LambdaQueryWrapper<ForecastResult> forecastWrapper = new LambdaQueryWrapper<>();
         forecastWrapper.between(ForecastResult::getForecastDate,
-                LocalDate.parse(startDate),
-                LocalDate.parse(endDate));
+                parseDate(startDate),
+                parseDate(endDate));
 
         if (productId != null) {
             forecastWrapper.eq(ForecastResult::getProductId, productId);
@@ -290,13 +290,14 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
             vo.setProductName(forecast.getProductName());
             vo.setCategoryId(forecast.getCategoryId());
             vo.setCategoryName(forecast.getCategoryName());
-            vo.setPredictedQuantity(forecast.getPredictedQuantity());
+            int predictedQty = forecast.getPredictedQuantity() != null ? forecast.getPredictedQuantity() : 0;
+            vo.setPredictedQuantity(predictedQty);
 
             String key = forecast.getForecastDate().toString() + "_" + forecast.getProductId();
             Integer actualQty = salesMap.getOrDefault(key, 0);
             vo.setActualQuantity(actualQty);
 
-            int variance = forecast.getPredictedQuantity() - actualQty;
+            int variance = predictedQty - actualQty;
             vo.setVariance(variance);
 
             double errorRate = 0;
@@ -317,52 +318,75 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
 
     @Override
     public List<Map<String, Object>> getForecastTrend(String startDate, String endDate) {
-        // 1. 查询预测数据，按日期汇总
+        // 1. 查询预测数据
         List<ForecastResult> forecastResults = this.list(
             new LambdaQueryWrapper<ForecastResult>()
-                .between(ForecastResult::getForecastDate, LocalDate.parse(startDate), LocalDate.parse(endDate))
+                .between(ForecastResult::getForecastDate, parseDate(startDate), parseDate(endDate))
         );
 
         // 按日期汇总预测销量
-        Map<LocalDate, Integer> forecastMap = forecastResults.stream()
+        Map<LocalDate, Integer> forecastQtyMap = forecastResults.stream()
             .collect(Collectors.groupingBy(
                 ForecastResult::getForecastDate,
                 Collectors.summingInt(r -> r.getPredictedQuantity() != null ? r.getPredictedQuantity() : 0)
             ));
 
-        // 2. 查询实际销售数据，按日期汇总
+        // 批量查询商品售价
+        Set<Long> productIds = forecastResults.stream()
+            .map(ForecastResult::getProductId)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toSet());
+
+        Map<Long, java.math.BigDecimal> priceMap = new HashMap<>();
+        if (!productIds.isEmpty()) {
+            List<Product> products = productMapper.selectBatchIds(productIds);
+            priceMap = products.stream().collect(Collectors.toMap(
+                Product::getId,
+                p -> p.getSalePrice() != null ? p.getSalePrice() : java.math.BigDecimal.ZERO,
+                (a, b) -> a
+            ));
+        }
+
+        // 按日期汇总预测销售额 = Σ(预测销量 × 商品售价)
+        Map<LocalDate, java.math.BigDecimal> forecastAmountMap = new HashMap<>();
+        for (ForecastResult r : forecastResults) {
+            if (r.getForecastDate() == null || r.getProductId() == null || r.getPredictedQuantity() == null) continue;
+            java.math.BigDecimal price = priceMap.getOrDefault(r.getProductId(), java.math.BigDecimal.ZERO);
+            java.math.BigDecimal lineAmount = price.multiply(new java.math.BigDecimal(r.getPredictedQuantity()));
+            forecastAmountMap.merge(r.getForecastDate(), lineAmount, java.math.BigDecimal::add);
+        }
+
+        // 2. 查询实际销售数据（销量 + 销售额）
         List<Map<String, Object>> salesSum = salesOrderItemMapper.getActualSalesSumByDate(startDate, endDate);
 
-        // 按日期汇总实际销量
-        Map<String, Integer> salesMap = new HashMap<>();
+        Map<String, Integer> actualQtyMap = new HashMap<>();
+        Map<String, java.math.BigDecimal> actualAmountMap = new HashMap<>();
         if (salesSum != null) {
             for (Map<String, Object> row : salesSum) {
                 Object dateObj = row.get("saleDate");
+                if (dateObj == null) continue;
+                String dateKey = dateObj.toString();
                 Object qtyObj = row.get("actualQuantity");
-                if (dateObj != null && qtyObj != null) {
-                    salesMap.put(dateObj.toString(), ((Number) qtyObj).intValue());
-                }
+                Object amtObj = row.get("actualAmount");
+                if (qtyObj != null) actualQtyMap.put(dateKey, ((Number) qtyObj).intValue());
+                if (amtObj != null) actualAmountMap.put(dateKey, new java.math.BigDecimal(amtObj.toString()));
             }
         }
 
         // 3. 合并数据，生成结果
-        List<Map<String, Object>> result = new ArrayList<>();
-        Set<LocalDate> allDates = new HashSet<>();
-        allDates.addAll(forecastMap.keySet());
-
-        for (String dateStr : salesMap.keySet()) {
-            try {
-                allDates.add(LocalDate.parse(dateStr));
-            } catch (Exception e) {
-                // 忽略无效日期
-            }
+        Set<LocalDate> allDates = new HashSet<>(forecastQtyMap.keySet());
+        for (String dateStr : actualQtyMap.keySet()) {
+            try { allDates.add(LocalDate.parse(dateStr)); } catch (Exception ignored) {}
         }
 
+        List<Map<String, Object>> result = new ArrayList<>();
         for (LocalDate date : allDates) {
             Map<String, Object> data = new HashMap<>();
             data.put("date", date.toString());
-            data.put("predictedQuantity", forecastMap.getOrDefault(date, 0));
-            data.put("actualQuantity", salesMap.getOrDefault(date.toString(), 0));
+            data.put("predictedQuantity", forecastQtyMap.getOrDefault(date, 0));
+            data.put("actualQuantity", actualQtyMap.getOrDefault(date.toString(), 0));
+            data.put("predictedAmount", forecastAmountMap.getOrDefault(date, java.math.BigDecimal.ZERO));
+            data.put("actualAmount", actualAmountMap.getOrDefault(date.toString(), java.math.BigDecimal.ZERO));
             result.add(data);
         }
 
@@ -378,7 +402,7 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
     private List<Map<String, Object>> getForecastSumByDate(String startDate, String endDate) {
         List<ForecastResult> results = this.list(
             new LambdaQueryWrapper<ForecastResult>()
-                .between(ForecastResult::getForecastDate, LocalDate.parse(startDate), LocalDate.parse(endDate))
+                .between(ForecastResult::getForecastDate, parseDate(startDate), parseDate(endDate))
         );
 
         Map<LocalDate, Integer> sumMap = results.stream()
@@ -482,6 +506,17 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         }
 
         return voList;
+    }
+
+    /**
+     * 安全解析日期字符串，格式错误时抛出友好异常
+     */
+    private LocalDate parseDate(String dateStr) {
+        try {
+            return LocalDate.parse(dateStr);
+        } catch (Exception e) {
+            throw new RuntimeException("日期格式错误，请使用 yyyy-MM-dd 格式：" + dateStr);
+        }
     }
 
     /**

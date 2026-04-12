@@ -191,14 +191,6 @@
           </template>
         </el-table-column>
         <el-table-column prop="safetyStock" label="安全库存" width="90" align="center" />
-        <el-table-column label="建议进货量" width="110" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.suggestedPurchase > 0" type="danger" effect="dark" size="small">
-              +{{ row.suggestedPurchase }}
-            </el-tag>
-            <span v-else class="no-need">-</span>
-          </template>
-        </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row)" size="small">{{ getStatusText(row) }}</el-tag>
@@ -244,14 +236,6 @@
           </template>
         </el-table-column>
         <el-table-column prop="safetyStock" label="安全库存" width="90" align="center" />
-        <el-table-column prop="suggestedPurchase" label="建议进货" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.suggestedPurchase > 0" type="danger" effect="dark" size="small">
-              +{{ row.suggestedPurchase }}
-            </el-tag>
-            <span v-else class="no-need">-</span>
-          </template>
-        </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row)" size="small">{{ getStatusText(row) }}</el-tag>
@@ -313,10 +297,6 @@
             <div class="stock-item">
               <div class="stock-label">周期预测</div>
               <div class="stock-value primary">{{ currentProduct.totalPredicted || currentProduct.predictedQuantity }}</div>
-            </div>
-            <div class="stock-item">
-              <div class="stock-label">建议进货</div>
-              <div class="stock-value warning">+{{ currentProduct.suggestedPurchase }}</div>
             </div>
           </div>
         </div>
@@ -474,9 +454,8 @@ const summaryResults = computed(() => {
       effectiveDailyAvg = predictDailyAvg * 0.3 + histAvg * 0.7
     }
 
-    p.avgPredicted = Math.round(effectiveDailyAvg)
-    // 进货量 = 日均 × 补货周期 + 安全库存 - 当前库存
-    p.suggestedPurchase = Math.max(0, Math.round(effectiveDailyAvg * restockCycle) + p.safetyStock - p.currentStock)
+    // 日均预测展示纯 AI 预测日均（totalPredicted / 预测天数），与周期预测总量保持一致
+    p.avgPredicted = Math.round(predictDailyAvg)
 
     // 三灯策略（统一标准）
     // 红灯：stock <= safetyStock

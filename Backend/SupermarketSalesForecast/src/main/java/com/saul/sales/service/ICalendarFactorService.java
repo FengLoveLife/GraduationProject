@@ -27,4 +27,9 @@ public interface ICalendarFactorService extends IService<CalendarFactor> {
      * 更新日历因子
      */
     void updateFactor(CalendarUpdateDTO dto);
+
+    /**
+     * 按 ID 查询单条日历因子（返回 VO）
+     */
+    CalendarFactorVO getVOById(Long id);
 }

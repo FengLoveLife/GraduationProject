@@ -376,42 +376,97 @@ const renderTopChart = (data) => {
   if (!topChart) topChart = echarts.init(topChartRef.value)
 
   const sortedData = [...(data || [])].reverse()
-  const categories = sortedData.map(item => item.productName)
-  const values = sortedData.map(item => item.quantity)
+  const maxQty = Math.max(...sortedData.map(d => d.quantity), 1)
+
+  // 背景参照条
+  const bgBars = sortedData.map(() => ({
+    value: maxQty,
+    itemStyle: { color: 'rgba(0,0,0,0.045)', borderRadius: [0, 8, 8, 0] }
+  }))
+
+  // 实际数据条（前3名暖色，其余蓝色）
+  const bars = sortedData.map((item, idx) => {
+    const rank = sortedData.length - idx
+    let s, e
+    if (rank === 1)      { s = '#ff9800'; e = '#ffce00' }
+    else if (rank === 2) { s = '#F56C6C'; e = '#ff9a9a' }
+    else if (rank === 3) { s = '#E6A23C'; e = '#f0c78a' }
+    else                 { s = '#409EFF'; e = '#79bbff' }
+    return {
+      value: item.quantity,
+      itemStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: s },
+          { offset: 1, color: e }
+        ])
+      }
+    }
+  })
 
   const option = {
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-      borderColor: '#eee',
+      axisPointer: { type: 'none' },
+      backgroundColor: 'rgba(255,255,255,0.97)',
+      borderColor: '#e4e7ed',
       borderWidth: 1,
-      textStyle: { color: '#333' }
+      padding: [10, 14],
+      textStyle: { color: '#333', fontSize: 13 },
+      extraCssText: 'box-shadow:0 4px 16px rgba(0,0,0,0.1);border-radius:8px;',
+      formatter: (params) => {
+        const p = params.find(x => x.seriesIndex === 1) || params[0]
+        const rank = sortedData.length - p.dataIndex
+        const name = sortedData[p.dataIndex]?.productName || p.name
+        return `<b>${name}</b><br/>排名：第 <b>${rank}</b> 名<br/>销量：<b>${p.value}</b> 件`
+      }
     },
-    grid: { left: '3%', right: '10%', bottom: '3%', top: 10, containLabel: true },
-    xAxis: {
-      type: 'value',
-      boundaryGap: [0, 0.01],
-      splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } }
-    },
+    grid: { left: 0, right: '15%', bottom: 0, top: 6, containLabel: true },
+    xAxis: { show: false },
     yAxis: {
       type: 'category',
-      data: categories,
-      axisLine: { lineStyle: { color: '#ddd' } },
-      axisLabel: { color: '#666', width: 100, overflow: 'truncate' }
+      data: sortedData.map(item => item.productName),
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        fontSize: 12,
+        formatter: (name, idx) => {
+          const rank = sortedData.length - idx
+          const badge = rank <= 3 ? `{top${rank}| ${rank} }` : `{nor| ${rank} }`
+          const label = name.length > 5 ? name.slice(0, 5) + '…' : name
+          return `${badge}  ${label}`
+        },
+        rich: {
+          top1: { backgroundColor: '#ff9800', color: '#fff', borderRadius: 6, padding: [1, 3], fontSize: 10, fontWeight: 'bold' },
+          top2: { backgroundColor: '#909399', color: '#fff', borderRadius: 6, padding: [1, 3], fontSize: 10, fontWeight: 'bold' },
+          top3: { backgroundColor: '#cd7f32', color: '#fff', borderRadius: 6, padding: [1, 3], fontSize: 10, fontWeight: 'bold' },
+          nor:  { backgroundColor: '#eef0f5', color: '#909399', borderRadius: 6, padding: [1, 3], fontSize: 10 }
+        }
+      }
     },
     series: [
       {
+        // 背景参照条
+        type: 'bar',
+        data: bgBars,
+        barWidth: 16,
+        itemStyle: { borderRadius: [0, 8, 8, 0] },
+        label: { show: false },
+        silent: true
+      },
+      {
+        // 实际销量条
         name: '销量',
         type: 'bar',
-        data: values,
+        data: bars,
         barWidth: 16,
-        itemStyle: {
-          borderRadius: [0, 8, 8, 0],
-          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-            { offset: 0, color: '#409EFF' },
-            { offset: 1, color: '#79bbff' }
-          ])
+        barGap: '-100%',
+        itemStyle: { borderRadius: [0, 8, 8, 0] },
+        label: {
+          show: true,
+          position: 'right',
+          color: '#606266',
+          fontSize: 11,
+          formatter: '{c} 件'
         }
       }
     ]
@@ -423,40 +478,68 @@ const renderCategoryChart = (data) => {
   if (!categoryChartRef.value) return
   if (!categoryChart) categoryChart = echarts.init(categoryChartRef.value)
 
-  const colors = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#b37beb', '#ff85c0', '#36cfc9']
+  const colors = ['#5470c6', '#67C23A', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4']
+
+  // 计算总销售额，用于中心文字
+  const total = (data || []).reduce((sum, item) => sum + Number(item.value || 0), 0)
+  const totalLabel = total >= 10000 ? (total / 10000).toFixed(1) + '万' : total.toLocaleString('zh-CN', { maximumFractionDigits: 0 })
 
   const option = {
     tooltip: {
       trigger: 'item',
-      formatter: '{b} : ¥{c} ({d}%)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-      borderColor: '#eee',
+      formatter: (params) => {
+        return `<div style="font-weight:600;margin-bottom:4px">${params.name}</div>` +
+               `<div style="color:#666">销售额：<span style="color:#303133;font-weight:600">¥${Number(params.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>` +
+               `<div style="color:#666">占比：<span style="color:${params.color};font-weight:600">${params.percent}%</span></div>`
+      },
+      backgroundColor: 'rgba(255,255,255,0.97)',
+      borderColor: '#e4e7ed',
       borderWidth: 1,
-      textStyle: { color: '#333' }
+      padding: [10, 14],
+      textStyle: { color: '#333', fontSize: 13 },
+      extraCssText: 'box-shadow: 0 4px 16px rgba(0,0,0,0.1); border-radius: 8px;'
     },
     legend: {
-      top: 'bottom',
-      textStyle: { color: '#666' }
+      bottom: 2,
+      left: 'center',
+      icon: 'circle',
+      itemWidth: 8,
+      itemHeight: 8,
+      itemGap: 10,
+      textStyle: { color: '#666', fontSize: 11 },
+      formatter: (name) => name.length > 4 ? name.slice(0, 4) + '…' : name
     },
     color: colors,
+    graphic: [
+      {
+        type: 'text',
+        left: 'center',
+        top: '34%',
+        style: { text: '¥' + totalLabel, textAlign: 'center', fill: '#1d2129', fontSize: 16, fontWeight: 'bold' }
+      },
+      {
+        type: 'text',
+        left: 'center',
+        top: '44%',
+        style: { text: '总销售额', textAlign: 'center', fill: '#909399', fontSize: 11 }
+      }
+    ],
     series: [
       {
         name: '品类占比',
         type: 'pie',
-        radius: [30, 80],
-        center: ['50%', '40%'],
-        roseType: 'area',
-        itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-        label: {
-          show: true,
-          color: '#666',
-          fontSize: 12,
-          formatter: '{b}\n{d}%'
-        },
-        labelLine: {
-          show: true,
-          length: 8,
-          length2: 12
+        radius: ['40%', '66%'],
+        center: ['50%', '44%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderRadius: 7, borderColor: '#fff', borderWidth: 2 },
+        label: { show: false },
+        labelLine: { show: false },
+        emphasis: {
+          scale: true,
+          scaleSize: 7,
+          itemStyle: { shadowBlur: 16, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.22)' },
+          label: { show: false },
+          labelLine: { show: false }
         },
         data: data || []
       }
@@ -598,9 +681,9 @@ onUnmounted(() => {
   align-items: center;
   margin-bottom: 24px;
   padding: 20px 28px;
-  background: linear-gradient(135deg, #1d3a8a 0%, #2755c5 50%, #3b7dd8 100%);
+  background: linear-gradient(135deg, #e67e00 0%, #ff9800 45%, #ffce00 100%);
   border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(29, 58, 138, 0.25);
+  box-shadow: 0 4px 20px rgba(230, 126, 0, 0.28);
   position: relative;
   overflow: hidden;
 }
@@ -612,7 +695,7 @@ onUnmounted(() => {
   width: 200px;
   height: 200px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.08);
   top: -80px;
   right: 60px;
 }
@@ -623,7 +706,7 @@ onUnmounted(() => {
   width: 120px;
   height: 120px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.10);
   bottom: -50px;
   right: 200px;
 }
@@ -646,7 +729,7 @@ onUnmounted(() => {
 
 .page-subtitle {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .header-right {

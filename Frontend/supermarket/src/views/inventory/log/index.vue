@@ -1,5 +1,13 @@
 <template>
   <div class="inventory-log-container">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <div class="header-content">
+        <h2 class="title">库存变动流水</h2>
+        <p class="subtitle">追踪每一笔库存变动，确保账实相符</p>
+      </div>
+    </div>
+
     <!-- 顶部搜索区 -->
     <el-card class="search-card" shadow="never">
       <el-form :inline="true" :model="queryParams" class="search-form">
@@ -177,6 +185,12 @@
           </span>
         </el-form-item>
 
+        <el-form-item label="调整后库存">
+          <span class="adjusted-stock-text" :class="adjustedStockPreview !== null && adjustedStockPreview < 0 ? 'stock-negative' : 'stock-positive'">
+            {{ adjustedStockPreview !== null ? adjustedStockPreview : '--' }}
+          </span>
+        </el-form-item>
+
         <el-form-item label="变动类型" prop="type">
           <el-radio-group v-model="adjustForm.type">
             <el-radio :label="3">损耗盘亏</el-radio>
@@ -213,7 +227,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Search, Refresh, Picture, Edit, Download } from '@element-plus/icons-vue'
 import request from '../../../utils/request'
 import { ElMessage } from 'element-plus'
@@ -378,6 +392,12 @@ const remoteSearchProduct = async (query) => {
   }
 }
 
+// 调整后库存预览
+const adjustedStockPreview = computed(() => {
+  if (currentStock.value === null || !adjustForm.changeAmount) return null
+  return currentStock.value + (adjustForm.changeAmount || 0)
+})
+
 // 选中商品联动
 const handleProductChange = (val) => {
   const product = productOptions.value.find(p => p.id === val)
@@ -465,6 +485,41 @@ onMounted(() => {
   padding: 20px;
   background-color: #f8fafc;
   min-height: calc(100vh - 100px);
+}
+
+.page-header {
+  background: linear-gradient(135deg, #e67e00 0%, #ff9800 45%, #ffce00 100%);
+  border-radius: 12px;
+  padding: 24px 28px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 20px rgba(230, 126, 0, 0.28);
+  color: #fff;
+}
+
+.page-header .title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  color: #fff;
+}
+
+.page-header .subtitle {
+  font-size: 13px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.adjusted-stock-text {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.stock-positive {
+  color: #67C23A;
+}
+
+.stock-negative {
+  color: #F56C6C;
 }
 
 .search-card {
