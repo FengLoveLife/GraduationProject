@@ -1,101 +1,107 @@
 <template>
   <div class="app-container">
-    <!-- Row 1: Global Date Controller -->
-    <el-card shadow="never" class="filter-card">
-      <div class="filter-header">
-        <div class="filter-left">
-          <el-icon class="filter-icon"><Calendar /></el-icon>
-          <span class="filter-label">统计时间范围</span>
-        </div>
-        <el-date-picker
-          v-model="dateRange"
-          type="daterange"
-          range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          :shortcuts="shortcuts"
-          value-format="YYYY-MM-DD"
-          @change="handleDateChange"
-          :clearable="false"
-        />
+    <!-- Row 1: Page Header with Date Picker -->
+    <div class="page-header">
+      <div class="header-left">
+        <h2 class="page-title">销售统计分析</h2>
+        <span class="page-subtitle">多维度洞察经营状况，数据驱动决策</span>
       </div>
-    </el-card>
+      <div class="header-right">
+        <div class="date-picker-wrapper">
+          <el-date-picker
+            v-model="dateRange"
+            type="daterange"
+            range-separator="~"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            :shortcuts="shortcuts"
+            value-format="YYYY-MM-DD"
+            @change="handleDateChange"
+            :clearable="false"
+            size="large"
+          />
+        </div>
+      </div>
+    </div>
 
     <!-- Row 2: KPI Cards -->
-    <el-row :gutter="20" class="kpi-row">
-      <el-col :span="6">
-        <div class="kpi-card kpi-card-blue">
-          <div class="kpi-icon-wrapper">
-            <el-icon class="kpi-icon"><Money /></el-icon>
-          </div>
-          <div class="kpi-content">
-            <div class="kpi-title">营业收入</div>
-            <div class="kpi-value">
-              <span class="currency">¥</span>
-              <span class="number">{{ formatNumber(kpiData.totalAmount) }}</span>
-            </div>
-            <div class="kpi-extra">
-              <el-icon><ShoppingCart /></el-icon>
-              <span>{{ kpiData.orderCount }} 笔订单</span>
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-decorator kpi-deco-blue"></div>
+        <div class="kpi-body">
+          <div class="kpi-header">
+            <span class="kpi-title">营业收入</span>
+            <div class="kpi-icon-circle kpi-icon-blue">
+              <el-icon><Money /></el-icon>
             </div>
           </div>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="kpi-card kpi-card-green">
-          <div class="kpi-icon-wrapper">
-            <el-icon class="kpi-icon"><TrendCharts /></el-icon>
+          <div class="kpi-value">
+            <span class="currency">¥</span>
+            <span class="number">{{ formatCompact(kpiData.totalAmount) }}</span>
           </div>
-          <div class="kpi-content">
-            <div class="kpi-title">盈利情况</div>
-            <div class="kpi-value">
-              <span class="currency">¥</span>
-              <span class="number">{{ formatNumber(kpiData.totalProfit) }}</span>
-            </div>
-            <div class="kpi-extra">
-              <el-icon><DataAnalysis /></el-icon>
-              <span>毛利率 {{ formatRate(kpiData.profitRate) }}</span>
-            </div>
+          <div class="kpi-footer">
+            <span class="kpi-tag kpi-tag-blue">{{ kpiData.orderCount }} 笔订单</span>
           </div>
         </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="kpi-card kpi-card-orange">
-          <div class="kpi-icon-wrapper">
-            <el-icon class="kpi-icon"><User /></el-icon>
-          </div>
-          <div class="kpi-content">
-            <div class="kpi-title">客单分析</div>
-            <div class="kpi-value">
-              <span class="currency">¥</span>
-              <span class="number">{{ formatNumber(kpiData.customerPrice) }}</span>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-decorator kpi-deco-green"></div>
+        <div class="kpi-body">
+          <div class="kpi-header">
+            <span class="kpi-title">盈利情况</span>
+            <div class="kpi-icon-circle kpi-icon-green">
+              <el-icon><TrendCharts /></el-icon>
             </div>
-            <div class="kpi-extra">
+          </div>
+          <div class="kpi-value">
+            <span class="currency">¥</span>
+            <span class="number">{{ formatCompact(kpiData.totalProfit) }}</span>
+          </div>
+          <div class="kpi-footer">
+            <span class="kpi-tag kpi-tag-green">毛利率 {{ formatRate(kpiData.profitRate) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-decorator kpi-deco-orange"></div>
+        <div class="kpi-body">
+          <div class="kpi-header">
+            <span class="kpi-title">客单价</span>
+            <div class="kpi-icon-circle kpi-icon-orange">
               <el-icon><Wallet /></el-icon>
-              <span>平均每单消费</span>
             </div>
+          </div>
+          <div class="kpi-value">
+            <span class="currency">¥</span>
+            <span class="number">{{ formatNumber(kpiData.customerPrice) }}</span>
+          </div>
+          <div class="kpi-footer">
+            <span class="kpi-tag kpi-tag-orange">平均每单消费</span>
           </div>
         </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="kpi-card kpi-card-purple">
-          <div class="kpi-icon-wrapper">
-            <el-icon class="kpi-icon"><Goods /></el-icon>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-decorator kpi-deco-purple"></div>
+        <div class="kpi-body">
+          <div class="kpi-header">
+            <span class="kpi-title">商品动销</span>
+            <div class="kpi-icon-circle kpi-icon-purple">
+              <el-icon><Goods /></el-icon>
+            </div>
           </div>
-          <div class="kpi-content">
-            <div class="kpi-title">动销情况</div>
-            <div class="kpi-value">
-              <span class="number">{{ kpiData.totalQuantity }}</span>
-              <span class="unit">件</span>
-            </div>
-            <div class="kpi-extra">
-              <el-icon><Box /></el-icon>
-              <span>累计销售商品</span>
-            </div>
+          <div class="kpi-value">
+            <span class="number">{{ formatQuantity(kpiData.totalQuantity) }}</span>
+            <span class="unit">件</span>
+          </div>
+          <div class="kpi-footer">
+            <span class="kpi-tag kpi-tag-purple">累计售出商品</span>
           </div>
         </div>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
 
     <!-- Row 3: Trend Chart -->
     <el-card shadow="never" class="chart-card">
@@ -161,8 +167,8 @@ import * as echarts from 'echarts'
 import request from '../../../utils/request'
 import { ElMessage } from 'element-plus'
 import {
-  Calendar, Money, TrendCharts, User, Goods, ShoppingCart,
-  DataAnalysis, Wallet, Box, DataLine, Trophy, PieChart, CreditCard
+  Money, TrendCharts, Goods, Wallet,
+  DataLine, Trophy, PieChart, CreditCard
 } from '@element-plus/icons-vue'
 
 // --- Date Picker Logic ---
@@ -522,6 +528,28 @@ const formatNumber = (num) => {
   return Number(num).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/**
+ * 智能缩写金额：超过万元显示 "X.XX万"，否则正常显示
+ * 解决大金额数字过长溢出卡片的问题
+ */
+const formatCompact = (num) => {
+  if (num === undefined || num === null) return '0.00'
+  const n = Number(num)
+  if (n >= 10000) {
+    return (n / 10000).toFixed(2) + '万'
+  }
+  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+const formatQuantity = (num) => {
+  if (num === undefined || num === null) return '0'
+  const n = Number(num)
+  if (n >= 10000) {
+    return (n / 10000).toFixed(1) + '万'
+  }
+  return n.toLocaleString('zh-CN')
+}
+
 const formatRate = (rate) => {
   if (rate === undefined || rate === null) return '0.00%'
   return (Number(rate) * 100).toFixed(2) + '%'
@@ -563,162 +591,206 @@ onUnmounted(() => {
   min-height: 100vh;
 }
 
-/* Filter Card */
-.filter-card {
-  margin-bottom: 20px;
-  border-radius: 12px;
-  border: none;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+/* ==================== Page Header ==================== */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding: 20px 28px;
+  background: linear-gradient(135deg, #1d3a8a 0%, #2755c5 50%, #3b7dd8 100%);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(29, 58, 138, 0.25);
+  position: relative;
+  overflow: hidden;
 }
 
-.filter-header {
+/* 装饰圆 */
+.page-header::before {
+  content: '';
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+  top: -80px;
+  right: 60px;
+}
+
+.page-header::after {
+  content: '';
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  bottom: -50px;
+  right: 200px;
+}
+
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 1px;
+}
+
+.page-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.header-right {
+  position: relative;
+  z-index: 1;
+}
+
+.date-picker-wrapper {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 4px;
+  backdrop-filter: blur(8px);
+}
+
+.date-picker-wrapper :deep(.el-date-editor) {
+  --el-date-editor-width: 340px;
+}
+
+.date-picker-wrapper :deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  box-shadow: none;
+  border: none;
+}
+
+/* ==================== KPI Cards Grid ==================== */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.kpi-card {
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.kpi-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+/* 左侧彩色装饰条 */
+.kpi-decorator {
+  width: 5px;
+  flex-shrink: 0;
+}
+
+.kpi-deco-blue   { background: linear-gradient(180deg, #409EFF, #79bbff); }
+.kpi-deco-green  { background: linear-gradient(180deg, #67C23A, #95d475); }
+.kpi-deco-orange { background: linear-gradient(180deg, #E6A23C, #f0c78a); }
+.kpi-deco-purple { background: linear-gradient(180deg, #8B5CF6, #b794f6); }
+
+.kpi-body {
+  flex: 1;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 130px;
+}
+
+.kpi-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.filter-left {
-  display: flex;
-  align-items: center;
+.kpi-title {
+  font-size: 14px;
+  color: #909399;
+  font-weight: 500;
 }
 
-.filter-icon {
-  font-size: 20px;
-  color: #409EFF;
-  margin-right: 10px;
-}
-
-.filter-label {
-  font-weight: 600;
-  font-size: 15px;
-  color: #303133;
-}
-
-/* KPI Cards */
-.kpi-row {
-  margin-bottom: 20px;
-}
-
-.kpi-card {
-  border-radius: 16px;
-  padding: 24px;
-  height: 140px;
-  display: flex;
-  align-items: center;
-  position: relative;
-  overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-.kpi-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
-}
-
-.kpi-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  opacity: 0.1;
-  transform: translate(30%, -30%);
-}
-
-/* Blue Theme */
-.kpi-card-blue {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  color: #fff;
-}
-.kpi-card-blue::before { background: #fff; }
-
-/* Green Theme */
-.kpi-card-green {
-  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-  color: #fff;
-}
-.kpi-card-green::before { background: #fff; }
-
-/* Orange Theme */
-.kpi-card-orange {
-  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-  color: #fff;
-}
-.kpi-card-orange::before { background: #fff; }
-
-/* Purple Theme */
-.kpi-card-purple {
-  background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);
-  color: #fff;
-}
-.kpi-card-purple::before { background: #fff; }
-
-.kpi-icon-wrapper {
-  width: 56px;
-  height: 56px;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 16px;
+/* 右上角圆形图标 */
+.kpi-icon-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 20px;
-  flex-shrink: 0;
+  font-size: 18px;
 }
 
-.kpi-icon {
-  font-size: 28px;
-  color: #fff;
-}
+.kpi-icon-blue   { background: #ecf5ff; color: #409EFF; }
+.kpi-icon-green  { background: #f0f9eb; color: #67C23A; }
+.kpi-icon-orange { background: #fdf6ec; color: #E6A23C; }
+.kpi-icon-purple { background: #f3eeff; color: #8B5CF6; }
 
-.kpi-content {
-  flex: 1;
-}
-
-.kpi-title {
-  font-size: 14px;
-  opacity: 0.9;
-  margin-bottom: 8px;
-}
-
+/* 数值区域 */
 .kpi-value {
-  font-size: 28px;
-  font-weight: 700;
-  margin-bottom: 8px;
   display: flex;
   align-items: baseline;
+  margin: 10px 0;
 }
 
 .kpi-value .currency {
   font-size: 16px;
-  margin-right: 4px;
-  opacity: 0.9;
+  font-weight: 600;
+  color: #909399;
+  margin-right: 2px;
 }
 
 .kpi-value .number {
   font-size: 28px;
+  font-weight: 700;
+  color: #1d2129;
+  letter-spacing: -0.5px;
+  line-height: 1;
 }
 
 .kpi-value .unit {
   font-size: 14px;
+  color: #909399;
   margin-left: 4px;
-  opacity: 0.9;
+  font-weight: 500;
 }
 
-.kpi-extra {
-  font-size: 13px;
-  opacity: 0.85;
+/* 底部标签 */
+.kpi-footer {
   display: flex;
   align-items: center;
-  gap: 4px;
 }
 
-.kpi-extra .el-icon {
-  font-size: 14px;
+.kpi-tag {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-weight: 500;
 }
 
-/* Chart Cards */
+.kpi-tag-blue   { background: #ecf5ff; color: #409EFF; }
+.kpi-tag-green  { background: #f0f9eb; color: #67C23A; }
+.kpi-tag-orange { background: #fdf6ec; color: #E6A23C; }
+.kpi-tag-purple { background: #f3eeff; color: #8B5CF6; }
+
+/* ==================== Chart Cards ==================== */
 .chart-card {
   margin-bottom: 20px;
   border-radius: 12px;
@@ -759,21 +831,28 @@ onUnmounted(() => {
   margin-bottom: 20px;
 }
 
-/* Responsive */
-@media (max-width: 1200px) {
-  .kpi-card {
-    padding: 20px;
-    height: auto;
-  }
-
+/* ==================== Responsive ==================== */
+@media (max-width: 1400px) {
   .kpi-value .number {
     font-size: 24px;
   }
 }
 
+@media (max-width: 1200px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @media (max-width: 768px) {
-  .kpi-row .el-col {
-    margin-bottom: 15px;
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .kpi-grid {
+    grid-template-columns: 1fr;
   }
 
   .bottom-row .el-col {

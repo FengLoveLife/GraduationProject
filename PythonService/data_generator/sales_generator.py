@@ -53,14 +53,14 @@ class SalesDataGenerator:
         (11, 20, 0.05)  # 11-20件，占5%（家庭大采购型）
     ]
 
-    # 时间段分布（双峰曲线）
+    # 时间段分布（双峰曲线，营业时间 8:00-21:00）
     TIME_DISTRIBUTION = [
-        (7, 30, 9, 30, 0.12),   # 早高峰 12%
-        (10, 0, 12, 0, 0.08),   # 中午前 8%
-        (12, 0, 14, 30, 0.15),  # 午餐时段 15%
-        (15, 0, 17, 30, 0.20),  # 下午时段 20%
-        (18, 0, 20, 30, 0.35),  # 晚高峰 35%
-        (20, 30, 22, 30, 0.10)  # 夜间期 10%
+        (8,  0, 10,  0, 0.12),  # 早高峰 12%
+        (10, 0, 12,  0, 0.08),  # 中午前 8%
+        (12, 0, 14,  0, 0.15),  # 午餐时段 15%
+        (14, 0, 17, 30, 0.20),  # 下午时段 20%
+        (17, 30, 20, 0, 0.35),  # 晚高峰 35%
+        (20, 0, 21,  0, 0.10),  # 闭店前 10%
     ]
 
     def __init__(self, calendar_factors: list, products: list):
@@ -157,24 +157,43 @@ class SalesDataGenerator:
 
     def build_product_pool(self, targets: dict) -> list:
         """
-        构建今天的商品池（把每个商品按目标数量放入池子）
+        构建今天的商品池（把每个商品按目标数量拆成购买事件放入池子）
+
+        每个池子槽位代表一次"购买事件"，事件内携带数量（1-4件）。
+        总数量之和严格等于 targets 目标，营业额不变，但明细行会出现多件购买。
 
         Args:
             targets: {product_code: target_quantity}
 
         Returns:
-            商品池列表 [{'product_code': xxx, 'product_info': xxx}, ...]
+            商品池列表 [{'product_code': xxx, 'product_info': xxx, 'qty': N}, ...]
         """
         pool = []
 
         for code, quantity in targets.items():
             product = self.products_by_code.get(code)
-            if product:
-                for _ in range(quantity):
-                    pool.append({
-                        'product_code': code,
-                        'product_info': product
-                    })
+            if not product:
+                continue
+
+            remaining = quantity
+            while remaining > 0:
+                # 决定本次购买事件买几件：不超过剩余量
+                if remaining == 1:
+                    qty = 1
+                elif remaining == 2:
+                    qty = random.choices([1, 2], weights=[0.65, 0.35])[0]
+                elif remaining == 3:
+                    qty = random.choices([1, 2, 3], weights=[0.60, 0.30, 0.10])[0]
+                else:
+                    qty = random.choices([1, 2, 3, 4], weights=[0.65, 0.25, 0.08, 0.02])[0]
+                    qty = min(qty, remaining)
+
+                pool.append({
+                    'product_code': code,
+                    'product_info': product,
+                    'qty': qty
+                })
+                remaining -= qty
 
         # 打乱池子（随机化）
         random.shuffle(pool)
@@ -261,13 +280,14 @@ class SalesDataGenerator:
                 product = product_pool[pool_index + i]['product_info']
                 pid = product['id']
 
-                # 修复"池子通胀"和"连击Bug"：真实数量完全由池子中抓取的次数决定
+                # 数量由池子槽位预分配的 qty 决定，保证总量与 target 一致
+                slot_qty = product_pool[pool_index + i].get('qty', 1)
                 if pid in cart_dict:
-                    cart_dict[pid]['quantity'] += 1
+                    cart_dict[pid]['quantity'] += slot_qty
                 else:
                     cart_dict[pid] = {
                         'product': product,
-                        'quantity': 1
+                        'quantity': slot_qty
                     }
 
             pool_index += items_count

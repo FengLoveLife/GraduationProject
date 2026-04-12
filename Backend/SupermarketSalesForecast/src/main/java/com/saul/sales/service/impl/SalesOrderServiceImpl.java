@@ -114,6 +114,17 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             Map<String, List<SalesImportExcelDTO>> orderGroup = cachedDataList.stream()
                     .collect(Collectors.groupingBy(SalesImportExcelDTO::getOrderNo));
 
+            // 3.1 重复导入防护：批量检查本次 Excel 中的订单号是否已存在
+            List<String> incomingOrderNos = new ArrayList<>(orderGroup.keySet());
+            List<SalesOrder> existingOrders = this.list(new LambdaQueryWrapper<SalesOrder>()
+                    .in(SalesOrder::getOrderNo, incomingOrderNos));
+            if (!existingOrders.isEmpty()) {
+                String duplicates = existingOrders.stream()
+                        .map(SalesOrder::getOrderNo)
+                        .collect(Collectors.joining("、"));
+                throw new RuntimeException("导入失败：以下订单号已存在，请勿重复导入：" + duplicates);
+            }
+
             DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
             for (Map.Entry<String, List<SalesImportExcelDTO>> entry : orderGroup.entrySet()) {

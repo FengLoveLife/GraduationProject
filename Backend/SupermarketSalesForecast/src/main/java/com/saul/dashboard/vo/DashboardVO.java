@@ -64,5 +64,7 @@ public class DashboardVO {
         private String name;
         /** 销量 */
         private Integer value;
+        /** 数据来源标签：今日 / 昨日 / 近7天（仅第一条携带，供前端读取） */
+        private String label;
     }
 }

@@ -12,11 +12,15 @@ import com.saul.product.mapper.ProductMapper;
 import com.saul.product.entity.Product;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -123,7 +127,7 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
             throw new RuntimeException("同一级别下已存在该分类名称");
         }
 
-        // 3) 层级处理：如果未传 level，则根据 parentId 动态计算
+        // 3) 层级处理：如果未传 level，则根据 parentId 动态计算，且不超过3层
         Integer level = dto.getLevel();
         if (level == null) {
             if (parentId == 0L) {
@@ -136,6 +140,9 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
                 Integer parentLevel = parent.getLevel() == null ? 1 : parent.getLevel();
                 level = parentLevel + 1;
             }
+        }
+        if (level > 3) {
+            throw new RuntimeException("分类层级最多3层，无法继续添加子分类");
         }
 
         // 4) DTO -> Entity 并保存入库
@@ -164,9 +171,14 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
             throw new RuntimeException("分类不存在");
         }
 
-        // 2) 死循环防御：父节点不能是自己
-        if (dto.getParentId() != null && dto.getId().equals(dto.getParentId())) {
-            throw new IllegalArgumentException("父级分类不能是自己");
+        // 2) 循环引用防御：检查新父节点是否是当前节点的子孙节点（含自身）
+        if (dto.getParentId() != null && dto.getParentId() != 0L) {
+            if (dto.getId().equals(dto.getParentId())) {
+                throw new IllegalArgumentException("父级分类不能是自己");
+            }
+            if (isDescendant(dto.getId(), dto.getParentId())) {
+                throw new IllegalArgumentException("不能将分类移动到自身的子孙节点下，会形成循环引用");
+            }
         }
 
         // 计算“目标” parentId / name（用于同级防重）
@@ -204,6 +216,9 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
                 Integer parentLevel = parent.getLevel() == null ? 1 : parent.getLevel();
                 newLevel = parentLevel + 1;
             }
+            if (newLevel != null && newLevel > 3) {
+                throw new RuntimeException("分类层级最多3层，无法移动到该位置");
+            }
         }
 
         // 5) 按需更新：仅更新前端传了非空值的字段
@@ -220,6 +235,14 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
             update.setSortOrder(dto.getSortOrder());
         }
         if (dto.getStatus() != null) {
+            // 5a) 禁用前置校验：该分类及所有子分类下不能存在在售商品
+            if (dto.getStatus() == 0 && (current.getStatus() == null || current.getStatus() == 1)) {
+                long activeCount = countActiveProductsUnder(dto.getId());
+                if (activeCount > 0) {
+                    throw new RuntimeException(
+                        "该分类下还有 " + activeCount + " 件在售商品，请先将商品全部下架后再禁用分类");
+                }
+            }
             update.setStatus(dto.getStatus());
         }
 
@@ -230,6 +253,7 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteCategory(Long id) {
         if (id == null) {
             throw new IllegalArgumentException("分类ID不能为空");
@@ -255,6 +279,56 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
         if (!ok) {
             throw new RuntimeException("删除分类失败");
         }
+    }
+
+    /**
+     * 统计指定分类及其所有子孙分类下的在售商品数量。
+     * 用于禁用分类时的前置校验：必须先下架所有商品才能禁用分类。
+     */
+    private long countActiveProductsUnder(Long categoryId) {
+        // 收集该分类及所有子孙分类的ID（BFS）
+        Set<Long> allCategoryIds = new HashSet<>();
+        Queue<Long> queue = new java.util.LinkedList<>();
+        queue.add(categoryId);
+        while (!queue.isEmpty()) {
+            Long cid = queue.poll();
+            allCategoryIds.add(cid);
+            List<ProductCategory> children = this.lambdaQuery()
+                    .eq(ProductCategory::getParentId, cid)
+                    .list();
+            for (ProductCategory child : children) {
+                queue.add(child.getId());
+            }
+        }
+        // 查询这些分类下的在售商品数
+        return productMapper.selectCount(new LambdaQueryWrapper<Product>()
+                .in(Product::getCategoryId, allCategoryIds)
+                .eq(Product::getStatus, 1));
+    }
+
+    /**
+     * 判断 targetId 是否是 ancestorId 的子孙节点（含自身）。
+     * 用于修改父节点时防止形成循环引用：A→B→C，若把A的父节点改为C，则形成环。
+     *
+     * @param ancestorId 祖先节点ID（即被修改的分类自身）
+     * @param targetId   目标父节点ID（即新的父节点）
+     * @return true 表示 targetId 是 ancestorId 的子孙，移动会形成循环
+     */
+    private boolean isDescendant(Long ancestorId, Long targetId) {
+        Set<Long> visited = new HashSet<>();
+        Long current = targetId;
+        while (current != null && current != 0L) {
+            if (current.equals(ancestorId)) {
+                return true; // targetId 在 ancestorId 的子树中，移动会形成环
+            }
+            if (visited.contains(current)) {
+                break; // 已存在的循环，提前终止防止死循环
+            }
+            visited.add(current);
+            ProductCategory node = this.getById(current);
+            current = (node == null) ? null : node.getParentId();
+        }
+        return false;
     }
 }
 

@@ -56,10 +56,11 @@ gradle-app.setting
 # Claude Code
 .claude/
 
-# 项目文档
+# 项目文档（仅本地保留，不推远程）
 Thesis/
 学习路线/
 技术文档/
+docs/
 
 # Python相关（非核心服务）
 PythonScripts/
@@ -69,3 +70,4 @@ PythonNote/
 # 其他不需要展示的文件
 memory/
 check_category.sql
+db/

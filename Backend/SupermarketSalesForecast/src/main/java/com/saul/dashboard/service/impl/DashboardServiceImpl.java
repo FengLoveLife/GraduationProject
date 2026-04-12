@@ -75,10 +75,10 @@ public class DashboardServiceImpl implements IDashboardService {
 
         // ========== 3. 待处理进货单数 ==========
 
-        // 状态为 pending 的进货单数量
+        // 待处理进货单：待确认(0) + 已下单货在途(1)，均需用户关注
         Long pendingOrderCount = purchaseOrderMapper.selectCount(
             new LambdaQueryWrapper<PurchaseOrder>()
-                .eq(PurchaseOrder::getStatus, "pending")
+                .in(PurchaseOrder::getStatus, 0, 1)
         );
         vo.setPendingPurchase(pendingOrderCount.intValue());
 
@@ -116,8 +116,8 @@ public class DashboardServiceImpl implements IDashboardService {
             historyMap.put(date, getBigDecimal(summary, "totalAmount"));
         }
 
-        // 预测数据：未来3天
-        LocalDate predictStart = today.plusDays(1);
+        // 预测数据：历史5天 + 未来3天（全部查出，用于对比准确率）
+        LocalDate predictStart = today.minusDays(4);
         LocalDate predictEnd = today.plusDays(3);
 
         List<ForecastResult> forecastResults = forecastResultMapper.selectList(
@@ -142,22 +142,22 @@ public class DashboardServiceImpl implements IDashboardService {
         // 组装趋势数据（共7天：4天历史 + 今天 + 3天预测）
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd");
 
-        // 前4天历史
+        // 前4天历史（同时携带预测值，供前端对比准确率）
         for (int i = 4; i >= 1; i--) {
             LocalDate date = today.minusDays(i);
             DashboardVO.TrendDataVO item = new DashboardVO.TrendDataVO();
             item.setDate(date.format(formatter));
             item.setActualAmount(historyMap.getOrDefault(date.toString(), BigDecimal.ZERO));
-            item.setPredictedAmount(null);
+            item.setPredictedAmount(predictMap.getOrDefault(date, null));
             item.setIsPrediction(false);
             list.add(item);
         }
 
-        // 今天（历史数据）
+        // 今天（历史数据 + 预测值）
         DashboardVO.TrendDataVO todayItem = new DashboardVO.TrendDataVO();
         todayItem.setDate(today.format(formatter));
         todayItem.setActualAmount(historyMap.getOrDefault(todayStr, BigDecimal.ZERO));
-        todayItem.setPredictedAmount(null);
+        todayItem.setPredictedAmount(predictMap.getOrDefault(today, null));
         todayItem.setIsPrediction(false);
         list.add(todayItem);
 
@@ -176,11 +176,28 @@ public class DashboardServiceImpl implements IDashboardService {
     }
 
     /**
-     * 构建今日品类销量占比饼图数据
+     * 构建品类销量占比饼图数据
+     * 降级策略：今日无数据 → 昨日数据 → 近7天数据
      */
     private List<DashboardVO.CategoryPieVO> buildCategoryPie(String todayStr) {
-        // 使用新的查询方法，按一级分类汇总销量
+        LocalDate today = LocalDate.parse(todayStr);
+
+        // 今日数据
         List<Map<String, Object>> categoryData = salesOrderItemMapper.getCategoryQuantityByDate(todayStr);
+
+        String label = "今日";
+        if (categoryData == null || categoryData.isEmpty()) {
+            // 降级1：昨日数据
+            String yesterdayStr = today.minusDays(1).toString();
+            categoryData = salesOrderItemMapper.getCategoryQuantityByDate(yesterdayStr);
+            label = "昨日";
+        }
+        if (categoryData == null || categoryData.isEmpty()) {
+            // 降级2：近7天数据
+            String weekAgoStr = today.minusDays(7).toString();
+            categoryData = salesOrderItemMapper.getCategoryQuantityByDateRange(weekAgoStr, todayStr);
+            label = "近7天";
+        }
 
         List<DashboardVO.CategoryPieVO> list = new ArrayList<>();
         for (Map<String, Object> row : categoryData) {
@@ -188,6 +205,11 @@ public class DashboardServiceImpl implements IDashboardService {
             item.setName(row.get("categoryName").toString());
             item.setValue(((Number) row.get("totalQuantity")).intValue());
             list.add(item);
+        }
+
+        // 将数据来源标签传到 VO，供前端饼图标题展示
+        if (!list.isEmpty()) {
+            list.get(0).setLabel(label);
         }
 
         return list;

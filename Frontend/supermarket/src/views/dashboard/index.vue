@@ -23,9 +23,10 @@
             <span class="number">{{ formatNumber(kpiData.todaySales) }}</span>
           </div>
           <div class="kpi-label">今日营业额</div>
-          <div class="kpi-trend up">
-            <el-icon><Top /></el-icon>
-            较昨日 +{{ kpiData.salesGrowth }}%
+          <div class="kpi-trend" :class="trendClass(kpiData.salesGrowth)">
+            <el-icon v-if="kpiData.salesGrowth > 0"><Top /></el-icon>
+            <el-icon v-else-if="kpiData.salesGrowth < 0"><Bottom /></el-icon>
+            较昨日 {{ trendText(kpiData.salesGrowth) }}
           </div>
         </div>
       </div>
@@ -40,9 +41,10 @@
             <span class="unit">单</span>
           </div>
           <div class="kpi-label">今日订单数</div>
-          <div class="kpi-trend up">
-            <el-icon><Top /></el-icon>
-            较昨日 +{{ kpiData.orderGrowth }}%
+          <div class="kpi-trend" :class="trendClass(kpiData.orderGrowth)">
+            <el-icon v-if="kpiData.orderGrowth > 0"><Top /></el-icon>
+            <el-icon v-else-if="kpiData.orderGrowth < 0"><Bottom /></el-icon>
+            较昨日 {{ trendText(kpiData.orderGrowth) }}
           </div>
         </div>
       </div>
@@ -64,7 +66,7 @@
         </div>
       </div>
 
-      <div class="kpi-card kpi-purple clickable" @click="goTo('/restocking/suggestion')">
+      <div class="kpi-card kpi-purple clickable" @click="goTo('/restocking/records')">
         <div class="kpi-icon">
           <el-icon><ShoppingCart /></el-icon>
         </div>
@@ -76,7 +78,7 @@
           <div class="kpi-label">待处理进货单</div>
           <div class="kpi-trend">
             <el-icon><Clock /></el-icon>
-            AI已生成建议
+            待确认/已下单
           </div>
         </div>
       </div>
@@ -104,7 +106,7 @@
               <div class="card-header">
                 <div class="header-left">
                   <el-icon class="header-icon" style="color: #E6A23C"><PieChart /></el-icon>
-                  <span>今日品类销量占比</span>
+                  <span>{{ categoryPieLabel }}品类销量占比</span>
                 </div>
               </div>
             </template>
@@ -173,7 +175,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'v
 import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import {
-  Money, Document, Warning, ShoppingCart, Top, Bell, Clock,
+  Money, Document, Warning, ShoppingCart, Top, Bottom, Bell, Clock,
   TrendCharts, PieChart, Cpu, Operation, Upload, Box
 } from '@element-plus/icons-vue'
 import { getDashboardData } from '@/api/dashboard'
@@ -221,6 +223,7 @@ const kpiData = reactive({
 // 图表数据（从后端获取）
 const salesTrendData = ref([])
 const categoryPieData = ref([])
+const categoryPieLabel = ref('今日')
 
 // 图表引用
 const salesChartRef = ref(null)
@@ -231,6 +234,20 @@ let categoryChart = null
 // 格式化数字
 const formatNumber = (num) => {
   return num.toLocaleString('zh-CN')
+}
+
+// 趋势文字：正数显示 +X%，负数显示 -X%，零显示 0%
+const trendText = (val) => {
+  if (val > 0) return `+${val}%`
+  if (val < 0) return `${val}%`
+  return '0%'
+}
+
+// 趋势样式：上涨=红，下跌=绿，持平=灰
+const trendClass = (val) => {
+  if (val > 0) return 'up'
+  if (val < 0) return 'down'
+  return 'flat'
 }
 
 // 跳转
@@ -255,6 +272,10 @@ const fetchData = async () => {
       // 更新图表数据
       salesTrendData.value = res.data.salesTrend || []
       categoryPieData.value = res.data.categoryPie || []
+      // 读取数据来源标签（后端将 label 放在第一条记录）
+      if (categoryPieData.value.length > 0 && categoryPieData.value[0].label) {
+        categoryPieLabel.value = categoryPieData.value[0].label
+      }
 
       // 初始化图表
       nextTick(() => {
@@ -278,20 +299,13 @@ const initSalesChart = () => {
   if (trendData.length === 0) return
 
   const dates = trendData.map(d => d.date)
-  const isPrediction = trendData.map(d => d.isPrediction)
 
-  // 找到历史数据的最后一个索引（交界点）
-  let lastActualIndex = -1
-  for (let i = trendData.length - 1; i >= 0; i--) {
-    if (!trendData[i].isPrediction) { lastActualIndex = i; break }
-  }
-
-  // 历史数据：预测位置为 null
+  // 历史实际销售额（仅历史天有值）
   const actualData = trendData.map(d => d.isPrediction ? null : d.actualAmount)
-  // 预测数据：历史位置为 null，但在交界点共享历史最后一天的值，使折线连贯
-  const predictedData = trendData.map((d, i) => {
-    if (d.isPrediction) return d.predictedAmount
-    if (i === lastActualIndex) return d.actualAmount  // 交界点：让预测线从这里开始
+
+  // 预测线：历史天用 predictedAmount，未来天用 predictedAmount，全程连贯
+  const predictedData = trendData.map(d => {
+    if (d.predictedAmount !== null && d.predictedAmount !== undefined) return d.predictedAmount
     return null
   })
 
@@ -302,15 +316,26 @@ const initSalesChart = () => {
       borderColor: '#e4e7ed',
       textStyle: { color: '#303133' },
       formatter: function(params) {
-        const p = params[0]
-        const date = p.axisValue
-        const dataIndex = p.dataIndex
-        const prediction = isPrediction[dataIndex]
-        const value = prediction ? predictedData[dataIndex] : actualData[dataIndex]
-        return `<div style="font-weight:600;margin-bottom:4px">${date}</div>
-                <div style="font-size:13px;color:#3B82F6;font-weight:700">
-                  ¥${value ? value.toLocaleString() : 0}${prediction ? ' <span style="color:#67C23A;font-size:12px">(预测)</span>' : ''}
-                </div>`
+        const date = params[0].axisValue
+        const idx = params[0].dataIndex
+        const actual = actualData[idx]
+        const predicted = predictedData[idx]
+        const isFuture = trendData[idx] && trendData[idx].isPrediction
+
+        let html = `<div style="font-weight:600;margin-bottom:6px">${date}</div>`
+        if (!isFuture && actual !== null && actual !== undefined) {
+          html += `<div style="font-size:13px;color:#3B82F6;font-weight:700">实际 ¥${Number(actual).toLocaleString()}</div>`
+        }
+        if (predicted !== null && predicted !== undefined) {
+          const label = isFuture ? 'AI预测' : 'AI预测'
+          html += `<div style="font-size:13px;color:#67C23A;font-weight:700">${label} ¥${Number(predicted).toLocaleString()}</div>`
+        }
+        if (!isFuture && actual !== null && predicted !== null && actual !== undefined && predicted !== undefined) {
+          const diff = ((Number(actual) - Number(predicted)) / Number(predicted) * 100).toFixed(1)
+          const color = Math.abs(diff) <= 10 ? '#10B981' : '#F59E0B'
+          html += `<div style="font-size:12px;color:${color};margin-top:3px">偏差 ${diff > 0 ? '+' : ''}${diff}%</div>`
+        }
+        return html
       }
     },
     legend: {
@@ -589,7 +614,15 @@ onBeforeUnmount(() => {
       gap: 4px;
 
       &.up {
+        color: #F56C6C;
+      }
+
+      &.down {
         color: #10B981;
+      }
+
+      &.flat {
+        color: #909399;
       }
     }
   }

@@ -20,6 +20,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -44,6 +45,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
     @Autowired
     private PurchaseOrderItemMapper purchaseOrderItemMapper;
+
+    @Autowired
+    private com.saul.product.mapper.ProductCategoryMapper productCategoryMapper;
 
     @Override
     public Page<ProductVO> queryPage(ProductQueryDTO queryDTO) {
@@ -191,8 +195,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                     .like(Product::getProductCode, kw));
         }
 
-        // 默认排序
-        wrapper.orderByDesc(Product::getCreateTime).orderByDesc(Product::getId);
+        // 按商品编号升序排列
+        wrapper.orderByAsc(Product::getProductCode);
         return wrapper;
     }
 
@@ -215,7 +219,16 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             throw new RuntimeException("商品编码已存在，请重新输入");
         }
 
-        // 2. DTO -> Entity
+        // 2. 分类有效性校验（存在 + 启用）
+        com.saul.product.entity.ProductCategory category = productCategoryMapper.selectById(addDTO.getCategoryId());
+        if (category == null) {
+            throw new RuntimeException("所属分类不存在，请重新选择");
+        }
+        if (Integer.valueOf(0).equals(category.getStatus())) {
+            throw new RuntimeException("所属分类已禁用，无法添加商品，请选择其他分类");
+        }
+
+        // 3. DTO -> Entity
         Product product = new Product();
         BeanUtils.copyProperties(addDTO, product);
 
@@ -236,7 +249,20 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             throw new RuntimeException("商品不存在");
         }
 
-        // 2. 动态防重校验：如果修改了编码，需检查是否被其他商品占用
+        // 2. 分类有效性校验：如果修改了分类，检查新分类存在且启用
+        if (updateDTO.getCategoryId() != null
+                && !updateDTO.getCategoryId().equals(oldProduct.getCategoryId())) {
+            com.saul.product.entity.ProductCategory newCategory =
+                    productCategoryMapper.selectById(updateDTO.getCategoryId());
+            if (newCategory == null) {
+                throw new RuntimeException("所属分类不存在，请重新选择");
+            }
+            if (Integer.valueOf(0).equals(newCategory.getStatus())) {
+                throw new RuntimeException("所属分类已禁用，无法将商品移入该分类");
+            }
+        }
+
+        // 3. 动态防重校验：如果修改了编码，需检查是否被其他商品占用
         if (StringUtils.hasText(updateDTO.getProductCode())
                 && !updateDTO.getProductCode().equals(oldProduct.getProductCode())) {
             Long count = this.lambdaQuery()
@@ -257,6 +283,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteProduct(Long id) {
         // 关联校验 1：是否有销售记录
         Long salesCount = salesOrderItemMapper.selectCount(

@@ -25,10 +25,11 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
     @Select("SELECT product_name as productName, SUM(quantity) as quantity, SUM(subtotal_amount) as amount FROM sales_order_item WHERE sale_date BETWEEN #{startDate} AND #{endDate} GROUP BY product_name ORDER BY quantity DESC LIMIT 10")
     List<TopProductVO> getTop10Products(@Param("startDate") String startDate, @Param("endDate") String endDate);
 
-    // 通过二级分类关联一级分类（level=1）
+    // 通过 product_id → product → 二级分类 → 一级分类，与其他分类查询保持一致
     @Select("SELECT COALESCE(pc1.name, '未分类') as categoryName, SUM(soi.subtotal_amount) as amount " +
             "FROM sales_order_item soi " +
-            "LEFT JOIN product_category pc2 ON soi.category_id = pc2.id " +
+            "LEFT JOIN product p ON soi.product_id = p.id " +
+            "LEFT JOIN product_category pc2 ON p.category_id = pc2.id " +
             "LEFT JOIN product_category pc1 ON pc2.parent_id = pc1.id " +
             "WHERE soi.sale_date BETWEEN #{startDate} AND #{endDate} " +
             "GROUP BY categoryName ORDER BY amount DESC")
@@ -78,6 +79,19 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
             "GROUP BY categoryName " +
             "ORDER BY totalQuantity DESC")
     List<Map<String, Object>> getCategoryQuantityByDate(@Param("date") String date);
+
+    /**
+     * 查询日期范围内按一级分类汇总的销量（用于降级展示）
+     */
+    @Select("SELECT COALESCE(pc1.name, '未分类') as categoryName, SUM(soi.quantity) as totalQuantity " +
+            "FROM sales_order_item soi " +
+            "LEFT JOIN product p ON soi.product_id = p.id " +
+            "LEFT JOIN product_category pc2 ON p.category_id = pc2.id " +
+            "LEFT JOIN product_category pc1 ON pc2.parent_id = pc1.id " +
+            "WHERE soi.sale_date BETWEEN #{startDate} AND #{endDate} " +
+            "GROUP BY categoryName " +
+            "ORDER BY totalQuantity DESC")
+    List<Map<String, Object>> getCategoryQuantityByDateRange(@Param("startDate") String startDate, @Param("endDate") String endDate);
 
     /**
      * 查询商品销售汇总（总销量、总销售额、总毛利、首次/最近销售日期、销售天数）

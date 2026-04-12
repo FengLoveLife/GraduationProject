@@ -77,18 +77,26 @@ class FeatureEngineer:
 
     # ==================== 数据加载 ====================
 
-    def load_sales_data(self, start_date: str, end_date: str) -> pd.DataFrame:
+    def load_sales_data(self, start_date: str, end_date: str,
+                        exclude_promotion: bool = False) -> pd.DataFrame:
         """
         加载指定日期范围的销量数据
 
         Args:
             start_date: 开始日期 'YYYY-MM-DD'
             end_date: 结束日期 'YYYY-MM-DD'
+            exclude_promotion: 是否排除促销数据（默认 False）
+                训练时传 True，使模型学习正常需求规律；
+                预测窗口时传 False，保留真实销量以反映库存实际消耗。
 
         Returns:
             DataFrame: columns=[date, product_code, product_id, product_name, category_id, quantity]
         """
-        sql = """
+        promotion_filter = "AND soi.is_promotion = 0" if exclude_promotion else ""
+        if exclude_promotion:
+            print("[特征工程] 训练模式：已排除促销数据 (is_promotion=1)")
+
+        sql = f"""
             SELECT
                 soi.sale_date as date,
                 soi.product_code,
@@ -99,6 +107,7 @@ class FeatureEngineer:
             FROM sales_order_item soi
             LEFT JOIN product p ON soi.product_id = p.id
             WHERE soi.sale_date >= %s AND soi.sale_date <= %s
+            {promotion_filter}
             GROUP BY soi.sale_date, soi.product_code, soi.product_id, soi.product_name, p.category_id
             ORDER BY soi.sale_date, soi.product_code
         """
@@ -257,8 +266,8 @@ class FeatureEngineer:
 
         print(f"[特征工程] 训练数据范围: {train_start_str} ~ {train_end_str}")
 
-        # 加载数据
-        sales_df = self.load_sales_data(train_start_str, train_end_str)
+        # 加载数据（训练时排除促销数据，避免促销峰值干扰模型学习正常需求规律）
+        sales_df = self.load_sales_data(train_start_str, train_end_str, exclude_promotion=True)
         calendar_df = self.load_calendar_factors(train_start_str, train_end_str)
         products_df = self.load_products()
 

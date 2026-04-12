@@ -209,7 +209,8 @@ const submitImport = async () => {
     // 导入成功后立即刷新预览
     fetchRecentOrders()
   } catch (error) {
-    console.error('导入失败:', error)
+    const msg = error?.response?.data?.message || error?.message || '导入失败，请检查文件格式或联系管理员'
+    ElMessage.error(msg)
   } finally {
     importLoading.value = false
   }
