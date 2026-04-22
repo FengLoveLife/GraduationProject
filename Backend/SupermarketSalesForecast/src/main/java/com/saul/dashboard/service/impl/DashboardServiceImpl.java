@@ -10,6 +10,7 @@ import com.saul.product.mapper.ProductMapper;
 import com.saul.restocking.entity.PurchaseOrder;
 import com.saul.restocking.mapper.PurchaseOrderMapper;
 import com.saul.sales.mapper.SalesOrderItemMapper;
+import com.saul.sales.mapper.SalesOrderMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ import java.util.stream.Collectors;
 public class DashboardServiceImpl implements IDashboardService {
 
     private final SalesOrderItemMapper salesOrderItemMapper;
+    private final SalesOrderMapper salesOrderMapper;
     private final ProductMapper productMapper;
     private final PurchaseOrderMapper purchaseOrderMapper;
     private final ForecastResultMapper forecastResultMapper;
@@ -47,12 +49,13 @@ public class DashboardServiceImpl implements IDashboardService {
 
         Map<String, Object> todaySalesData = salesOrderItemMapper.getDailySalesSummary(todayStr);
         BigDecimal todaySalesAmount = getBigDecimal(todaySalesData, "totalAmount");
-        Integer todayOrderCount = getInt(todaySalesData, "totalQuantity");
+        // 订单数从 sales_order 表查询（修复：之前错误地把销售商品总数当作订单数）
+        Integer todayOrderCount = salesOrderMapper.getDailyOrderCount(todayStr);
 
         // 昨日数据（用于计算增长率）
         Map<String, Object> yesterdaySalesData = salesOrderItemMapper.getDailySalesSummary(yesterdayStr);
         BigDecimal yesterdaySalesAmount = getBigDecimal(yesterdaySalesData, "totalAmount");
-        Integer yesterdayOrderCount = getInt(yesterdaySalesData, "totalQuantity");
+        Integer yesterdayOrderCount = salesOrderMapper.getDailyOrderCount(yesterdayStr);
 
         // 计算增长率
         BigDecimal salesGrowth = calculateGrowthRate(todaySalesAmount, yesterdaySalesAmount);

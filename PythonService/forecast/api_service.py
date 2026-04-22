@@ -34,9 +34,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 跨域配置
+# 跨域配置,简单说就是允许跨域访问
 app.add_middleware(
     CORSMiddleware,
+    #允许任意域名访问
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],

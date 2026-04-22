@@ -24,7 +24,4 @@ public class ForecastQueryDTO {
 
     /** 查询天数（从forecastDate开始） */
     private Integer days;
-
-    /** 库存状态筛选：sufficient / warning / needPurchase */
-    private String stockStatus;
 }

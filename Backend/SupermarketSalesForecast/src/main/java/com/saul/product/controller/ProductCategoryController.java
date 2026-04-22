@@ -6,20 +6,16 @@ import com.saul.product.dto.CategoryUpdateDTO;
 import com.saul.product.service.IProductCategoryService;
 import com.saul.product.vo.CategoryTreeVO;
 import lombok.RequiredArgsConstructor;
-import org.springframework.validation.FieldError;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import jakarta.validation.Valid;
-import org.springframework.validation.annotation.Validated;
 import java.util.List;
 
 /**
@@ -45,26 +41,18 @@ public class ProductCategoryController {
      * 新增分类：POST /api/category
      */
     @PostMapping
-    public Result<String> add(@Valid @RequestBody CategoryAddDTO dto) {
-        try {
-            productCategoryService.addCategory(dto);
-            return Result.<String>success("添加分类成功", null);
-        } catch (Exception ex) {
-            return Result.error(ex.getMessage() == null ? "添加分类失败" : ex.getMessage());
-        }
+    public Result<String> add(@Validated @RequestBody CategoryAddDTO dto) {
+        productCategoryService.addCategory(dto);
+        return Result.<String>success("添加分类成功", null);
     }
 
     /**
      * 修改分类：PUT /api/category
      */
     @PutMapping
-    public Result<String> update(@RequestBody @Validated CategoryUpdateDTO dto) {
-        try {
-            productCategoryService.updateCategory(dto);
-            return Result.<String>success("修改分类成功", null);
-        } catch (Exception ex) {
-            return Result.error(ex.getMessage() == null ? "修改分类失败" : ex.getMessage());
-        }
+    public Result<String> update(@Validated @RequestBody CategoryUpdateDTO dto) {
+        productCategoryService.updateCategory(dto);
+        return Result.<String>success("修改分类成功", null);
     }
 
     /**
@@ -72,22 +60,7 @@ public class ProductCategoryController {
      */
     @DeleteMapping("/{id}")
     public Result<String> delete(@PathVariable("id") Long id) {
-        try {
-            productCategoryService.deleteCategory(id);
-            return Result.<String>success("删除分类成功", null);
-        } catch (Exception ex) {
-            return Result.error(ex.getMessage() == null ? "删除分类失败" : ex.getMessage());
-        }
-    }
-
-    /**
-     * 参数校验异常：将校验错误转换为统一 Result 返回，便于前端直接展示。
-     */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public Result<String> handleValidException(MethodArgumentNotValidException ex) {
-        FieldError fe = ex.getBindingResult().getFieldError();
-        String msg = (fe == null) ? "参数校验失败" : fe.getDefaultMessage();
-        return Result.error(400, msg);
+        productCategoryService.deleteCategory(id);
+        return Result.<String>success("删除分类成功", null);
     }
 }
-

@@ -88,7 +88,7 @@
             <div class="card-header">
               <div class="header-left">
                 <el-icon class="header-icon" style="color: #E6A23C"><PieChart /></el-icon>
-                <span>预测库存状态分布</span>
+                <span>各分类预测销量占比</span>
               </div>
             </div>
           </template>
@@ -121,7 +121,7 @@
                 <span class="value">{{ item.predictedQuantity }}</span>
                 <span class="unit">件</span>
               </div>
-              <div class="stock-info" :class="getStockInfoClass(item)">库存：{{ item.currentStock }}</div>
+              <div class="stock-info enough-stock">{{ item.categoryName }}</div>
             </div>
           </div>
         </el-card>
@@ -196,6 +196,7 @@ const loading = ref(false)
 const trendRange = ref('7')
 
 const kpiData = reactive({ totalProducts: 0, totalPredicted: 0, totalPredictedAmount: 0, quantityGrowthRate: null, amountGrowthRate: null })
+const categoryAmountsData = ref([])
 
 const trendChartRef = ref(null)
 const statusChartRef = ref(null)
@@ -211,7 +212,6 @@ const suggestionSummary = ref({ redCount: 0, yellowCount: 0, totalCount: 0 })
 const suggestionList = ref([])
 
 const getRankClass = (index) => index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : ''
-const getStockInfoClass = (item) => item.currentStock < 50 ? 'low-stock' : item.currentStock < 100 ? 'medium-stock' : 'enough-stock'
 const formatAmount = (amount) => {
   if (amount >= 10000) {
     return (amount / 10000).toFixed(2) + '万'
@@ -240,6 +240,12 @@ const loadKpiData = async () => {
       kpiData.totalPredictedAmount = data.totalPredictedAmount || 0
       kpiData.quantityGrowthRate = data.quantityGrowthRate
       kpiData.amountGrowthRate = data.amountGrowthRate
+      // 一级分类预测销售额，转为饼图数据格式并按销售额降序排列
+      const catAmounts = data.categoryAmounts || {}
+      categoryAmountsData.value = Object.entries(catAmounts)
+        .map(([name, value]) => ({ name, value: Number(value) || 0 }))
+        .filter(d => d.value > 0)
+        .sort((a, b) => b.value - a.value)
     }
   } catch (error) { console.error('获取 KPI 数据失败:', error) }
 }
@@ -247,22 +253,9 @@ const loadKpiData = async () => {
 const loadForecastResults = async () => {
   try {
     const res = await getForecastResults({ days: 1 })
-    // 拦截器已处理，res.code === 200 表示成功，res.data 是后端返回的 data
     if (res.code === 200 && res.data) {
       const results = res.data || []
       allForecastResults.value = results
-      results.forEach(item => {
-        const dailyAvg = item.historicalDailyAvg || item.predictedQuantity || 0
-        const cycle = item.restockCycleDays || 7
-        const yellowLine = item.safetyStock + dailyAvg * cycle * 0.3
-        if (item.currentStock <= item.safetyStock) {
-          item.stockStatus = 'warning';      item.lightStatus = 1  // 红灯：触底
-        } else if (item.currentStock <= yellowLine) {
-          item.stockStatus = 'needPurchase'; item.lightStatus = 2  // 黄灯：周期70%已消耗
-        } else {
-          item.stockStatus = 'sufficient';   item.lightStatus = 0  // 绿灯：充足
-        }
-      })
       topProducts.value = [...results].sort((a, b) => b.predictedQuantity - a.predictedQuantity).slice(0, 10)
     }
   } catch (error) { console.error('获取预测结果失败:', error) }
@@ -376,85 +369,66 @@ const initStatusChart = () => {
   if (!statusChartRef.value) return
   if (!statusChart) statusChart = echarts.init(statusChartRef.value)
 
-  // 从实时预测结果统计三灯数量，与销量预测页保持一致
-  const redCount    = allForecastResults.value.filter(i => i.stockStatus === 'warning').length
-  const yellowCount = allForecastResults.value.filter(i => i.stockStatus === 'needPurchase').length
-  const greenCount  = allForecastResults.value.filter(i => i.stockStatus === 'sufficient').length
+  const pieData = categoryAmountsData.value
+  const totalAmount = pieData.reduce((s, d) => s + d.value, 0)
+
+  // 金额格式化：≥10000 显示 X.XX万
+  const fmtAmount = (val) => val >= 10000 ? (val / 10000).toFixed(2) + '万' : val.toFixed(2)
 
   const option = {
-    tooltip: { 
+    tooltip: {
       trigger: 'item',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      backgroundColor: 'rgba(255,255,255,0.95)',
       borderColor: '#eee',
       borderWidth: 1,
-      textStyle: { color: '#333' }
+      textStyle: { color: '#333' },
+      formatter: (params) =>
+        `${params.name}<br/>预测销售额：<b>¥${fmtAmount(params.value)}</b>（${params.percent}%）`
     },
-    legend: { 
-      orient: 'vertical', 
-      right: 15, 
-      top: 15, 
-      textStyle: { color: '#606266' } 
+    legend: {
+      orient: 'vertical',
+      right: 10,
+      top: 'center',
+      textStyle: { color: '#606266', fontSize: 12 },
+      formatter: (name) => {
+        const item = pieData.find(d => d.name === name)
+        return item ? `${name}  ¥${fmtAmount(item.value)}` : name
+      }
     },
     series: [{
       type: 'pie',
-      radius: ['50%', '75%'],
-      center: ['35%', '50%'],
+      radius: ['50%', '72%'],
+      center: ['32%', '50%'],
       avoidLabelOverlap: false,
-      itemStyle: { 
-        borderRadius: 10, 
-        borderColor: '#fff', 
-        borderWidth: 3 
-      },
-      label: { 
-        show: false,
-        position: 'center'
-      },
-      emphasis: { 
-        label: { 
-          show: false
-        },
-        itemStyle: {
-          shadowBlur: 10,
-          shadowOffsetX: 0,
-          shadowColor: 'rgba(0, 0, 0, 0.2)'
-        }
+      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 3 },
+      label: { show: false },
+      emphasis: {
+        itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' }
       },
       labelLine: { show: false },
-      data: [
-        { value: greenCount, name: '库存充足', itemStyle: { color: '#67C23A' } },
-        { value: yellowCount, name: '库存紧张', itemStyle: { color: '#E6A23C' } },
-        { value: redCount, name: '库存告急', itemStyle: { color: '#F56C6C' } }
-      ]
+      data: pieData
     }],
-    // 添加图形中心文字
     graphic: {
       type: 'group',
-      left: '35%',
+      left: '32%',
       top: '45%',
       children: [
         {
           type: 'text',
-          style: {
-            text: '商品总数',
-            textAlign: 'center',
-            textLineHeight: 20,
-            fill: '#909399',
-            font: '13px sans-serif'
-          },
+          style: { text: '预测总额', textAlign: 'center', fill: '#909399', font: '12px sans-serif' },
           top: -10
         },
         {
           type: 'text',
           style: {
-            text: (redCount + yellowCount + greenCount).toString(),
+            text: '¥' + fmtAmount(totalAmount),
             textAlign: 'center',
-            textLineHeight: 36,
             fill: '#1e293b',
-            font: 'bold 28px sans-serif',
+            font: 'bold 22px sans-serif',
             textStroke: '#fff',
             textStrokeWidth: 3
           },
-          top: 5
+          top: 6
         }
       ]
     }

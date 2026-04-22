@@ -125,6 +125,27 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 throw new RuntimeException("导入失败：以下订单号已存在，请勿重复导入：" + duplicates);
             }
 
+            // 3.2 库存充足性预检：汇总本次 Excel 中各商品的总需求量，一次性与当前库存比对
+            // 同一商品可能出现在多张订单中，因此必须聚合后再检查，而非逐行检查
+            Map<String, Integer> totalDemandByCode = cachedDataList.stream()
+                    .collect(Collectors.groupingBy(
+                            SalesImportExcelDTO::getProductCode,
+                            Collectors.summingInt(SalesImportExcelDTO::getQuantity)
+                    ));
+            List<String> stockShortages = new ArrayList<>();
+            for (Map.Entry<String, Integer> entry : totalDemandByCode.entrySet()) {
+                Product product = productMap.get(entry.getKey());
+                if (product == null) continue; // 商品不存在的错误在后续明细处理时报出
+                if (product.getStock() < entry.getValue()) {
+                    stockShortages.add(String.format("【%s】当前库存 %d 件，本次合计销售 %d 件",
+                            product.getName(), product.getStock(), entry.getValue()));
+                }
+            }
+            if (!stockShortages.isEmpty()) {
+                throw new RuntimeException("导入失败：以下商品库存不足，请核实 Excel 数据后重新导入：" +
+                        String.join("；", stockShortages));
+            }
+
             DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
             for (Map.Entry<String, List<SalesImportExcelDTO>> entry : orderGroup.entrySet()) {

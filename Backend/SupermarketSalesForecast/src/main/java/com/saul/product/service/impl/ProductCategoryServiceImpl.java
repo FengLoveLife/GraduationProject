@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -35,7 +36,7 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
 
     @Override
     public List<CategoryTreeVO> getCategoryTree() {
-        // 1) 一次性查询全部分类（禁止在循环里查库）
+        // 1) 一次性查询全部分类
         List<ProductCategory> list = this.list(new LambdaQueryWrapper<ProductCategory>()
                 .orderByAsc(ProductCategory::getSortOrder)
                 .orderByAsc(ProductCategory::getId));
@@ -137,6 +138,9 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
                 if (parent == null) {
                     throw new RuntimeException("父级分类不存在");
                 }
+                if (Integer.valueOf(0).equals(parent.getStatus())) {
+                    throw new RuntimeException("父级分类【" + parent.getName() + "】已禁用，无法在其下添加子分类");
+                }
                 Integer parentLevel = parent.getLevel() == null ? 1 : parent.getLevel();
                 level = parentLevel + 1;
             }
@@ -160,6 +164,7 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateCategory(CategoryUpdateDTO dto) {
         if (dto == null) {
             throw new RuntimeException("请求参数不能为空");
@@ -181,7 +186,7 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
             }
         }
 
-        // 计算“目标” parentId / name（用于同级防重）
+        // 计算"目标" parentId / name（用于同级防重）
         Long targetParentId = dto.getParentId() == null ? (current.getParentId() == null ? 0L : current.getParentId()) : dto.getParentId();
         String targetName = dto.getName() == null ? current.getName() : dto.getName().trim();
         if (targetName == null || targetName.isEmpty()) {
@@ -221,7 +226,28 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
             }
         }
 
-        // 5) 按需更新：仅更新前端传了非空值的字段
+        // 5) 状态变更校验
+        if (dto.getStatus() != null) {
+            if (dto.getStatus() == 0 && !Integer.valueOf(0).equals(current.getStatus())) {
+                // 禁用前置校验：该分类及所有子分类下不能存在在售商品
+                long activeCount = countActiveProductsUnder(dto.getId());
+                if (activeCount > 0) {
+                    throw new RuntimeException(
+                        "该分类下还有 " + activeCount + " 件在售商品，请先将商品全部下架后再禁用分类");
+                }
+            } else if (dto.getStatus() == 1 && Integer.valueOf(0).equals(current.getStatus())) {
+                // 启用校验：若父分类已禁用，不允许单独启用子分类
+                if (current.getParentId() != null && current.getParentId() != 0L) {
+                    ProductCategory parent = this.getById(current.getParentId());
+                    if (parent != null && Integer.valueOf(0).equals(parent.getStatus())) {
+                        throw new RuntimeException(
+                            "父级分类【" + parent.getName() + "】已被禁用，请先启用父分类");
+                    }
+                }
+            }
+        }
+
+        // 6) 按需更新：仅更新前端传了非空值的字段
         ProductCategory update = new ProductCategory();
         update.setId(dto.getId());
         if (dto.getName() != null) {
@@ -235,20 +261,28 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
             update.setSortOrder(dto.getSortOrder());
         }
         if (dto.getStatus() != null) {
-            // 5a) 禁用前置校验：该分类及所有子分类下不能存在在售商品
-            if (dto.getStatus() == 0 && (current.getStatus() == null || current.getStatus() == 1)) {
-                long activeCount = countActiveProductsUnder(dto.getId());
-                if (activeCount > 0) {
-                    throw new RuntimeException(
-                        "该分类下还有 " + activeCount + " 件在售商品，请先将商品全部下架后再禁用分类");
-                }
-            }
             update.setStatus(dto.getStatus());
         }
 
-        boolean ok = this.updateById(update);
-        if (!ok) {
-            throw new RuntimeException("修改分类失败");
+        this.updateById(update);
+
+        // 7) 级联操作（在主记录更新成功后执行）
+
+        // 7a) 禁用时：级联禁用所有子孙分类
+        if (dto.getStatus() != null && dto.getStatus() == 0 && !Integer.valueOf(0).equals(current.getStatus())) {
+            Set<Long> descendantIds = collectAllDescendantIds(dto.getId());
+            descendantIds.remove(dto.getId()); // 当前节点已由 updateById 处理
+            if (!descendantIds.isEmpty()) {
+                this.lambdaUpdate()
+                        .in(ProductCategory::getId, descendantIds)
+                        .set(ProductCategory::getStatus, 0)
+                        .update();
+            }
+        }
+
+        // 7b) 移动父节点时：级联更新所有子孙节点的 level 字段
+        if (parentChanged && newLevel != null) {
+            cascadeUpdateLevel(dto.getId(), newLevel);
         }
     }
 
@@ -282,17 +316,15 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
     }
 
     /**
-     * 统计指定分类及其所有子孙分类下的在售商品数量。
-     * 用于禁用分类时的前置校验：必须先下架所有商品才能禁用分类。
+     * 收集指定分类及其所有子孙分类的 ID 集合（BFS，含自身）。
      */
-    private long countActiveProductsUnder(Long categoryId) {
-        // 收集该分类及所有子孙分类的ID（BFS）
-        Set<Long> allCategoryIds = new HashSet<>();
-        Queue<Long> queue = new java.util.LinkedList<>();
+    private Set<Long> collectAllDescendantIds(Long categoryId) {
+        Set<Long> allIds = new HashSet<>();
+        Queue<Long> queue = new LinkedList<>();
         queue.add(categoryId);
         while (!queue.isEmpty()) {
             Long cid = queue.poll();
-            allCategoryIds.add(cid);
+            allIds.add(cid);
             List<ProductCategory> children = this.lambdaQuery()
                     .eq(ProductCategory::getParentId, cid)
                     .list();
@@ -300,10 +332,34 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
                 queue.add(child.getId());
             }
         }
-        // 查询这些分类下的在售商品数
+        return allIds;
+    }
+
+    /**
+     * 统计指定分类及其所有子孙分类下的在售商品数量。
+     */
+    private long countActiveProductsUnder(Long categoryId) {
+        Set<Long> allCategoryIds = collectAllDescendantIds(categoryId);
         return productMapper.selectCount(new LambdaQueryWrapper<Product>()
                 .in(Product::getCategoryId, allCategoryIds)
                 .eq(Product::getStatus, 1));
+    }
+
+    /**
+     * 递归级联更新子孙节点的 level 字段。
+     * 当一个分类的父节点发生变化时调用，确保整棵子树的 level 与实际层级保持一致。
+     */
+    private void cascadeUpdateLevel(Long parentId, int parentLevel) {
+        List<ProductCategory> children = this.lambdaQuery()
+                .eq(ProductCategory::getParentId, parentId)
+                .list();
+        for (ProductCategory child : children) {
+            ProductCategory upd = new ProductCategory();
+            upd.setId(child.getId());
+            upd.setLevel(parentLevel + 1);
+            this.updateById(upd);
+            cascadeUpdateLevel(child.getId(), parentLevel + 1);
+        }
     }
 
     /**
@@ -312,17 +368,17 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
      *
      * @param ancestorId 祖先节点ID（即被修改的分类自身）
      * @param targetId   目标父节点ID（即新的父节点）
-     * @return true 表示 targetId 是 ancestorId 的子孙，移动会形成循环
+     * @return true 表示 targetId 在 ancestorId 的子树中，移动会形成循环
      */
     private boolean isDescendant(Long ancestorId, Long targetId) {
         Set<Long> visited = new HashSet<>();
         Long current = targetId;
         while (current != null && current != 0L) {
             if (current.equals(ancestorId)) {
-                return true; // targetId 在 ancestorId 的子树中，移动会形成环
+                return true;
             }
             if (visited.contains(current)) {
-                break; // 已存在的循环，提前终止防止死循环
+                break;
             }
             visited.add(current);
             ProductCategory node = this.getById(current);
@@ -331,4 +387,3 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
         return false;
     }
 }
-

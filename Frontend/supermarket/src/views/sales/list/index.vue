@@ -236,7 +236,7 @@ const getPaymentTypeText = (type) => {
 // 辅助：支付方式 Tag 样式
 const getPaymentTypeTag = (type) => {
   const map = {
-    1: 'info',
+    1: 'danger',
     2: 'success',
     3: 'primary'
   }

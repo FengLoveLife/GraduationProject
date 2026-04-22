@@ -15,7 +15,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -91,44 +93,36 @@ public class SalesAnalysisServiceImpl implements ISalesAnalysisService {
         List<Map<String, Object>> amountList = salesOrderMapper.getDailyAmount(queryDTO.getStartDate(), queryDTO.getEndDate());
         List<Map<String, Object>> profitList = salesOrderItemMapper.getDailyProfit(queryDTO.getStartDate(), queryDTO.getEndDate());
 
-        // 2. 转换为 Map 方便查找 (Key: LocalDateString, Value: BigDecimal)
+        // 2. 转换为 Map 方便查找 (Key: "yyyy-MM-dd", Value: BigDecimal)
         Map<String, BigDecimal> amountMap = amountList.stream().collect(Collectors.toMap(
                 m -> m.get("saleDate").toString(),
                 m -> new BigDecimal(m.get("dailyAmount").toString())
         ));
-        
+
         Map<String, BigDecimal> profitMap = profitList.stream().collect(Collectors.toMap(
                 m -> m.get("saleDate").toString(),
                 m -> new BigDecimal(m.get("dailyProfit").toString())
         ));
 
-        // 3. 收集所有涉及的日期并排序 (合并两个列表的日期)
-        Set<String> dateSet = new HashSet<>();
-        dateSet.addAll(amountMap.keySet());
-        dateSet.addAll(profitMap.keySet());
-        
-        List<String> sortedDates = new ArrayList<>(dateSet);
-        Collections.sort(sortedDates);
+        // 3. 按查询区间生成连续完整日期序列，无销售数据的日期补零
+        // 原先只收集有数据的日期，导致图表出现"日期洞"，折线跨越空日期产生误导性上涨曲线
+        LocalDate rangeStart = LocalDate.parse(queryDTO.getStartDate());
+        LocalDate rangeEnd   = LocalDate.parse(queryDTO.getEndDate());
+
+        DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("MM-dd");
 
         // 4. 组装最终数据
         List<BigDecimal> finalAmounts = new ArrayList<>();
         List<BigDecimal> finalProfits = new ArrayList<>();
         List<String> displayDates = new ArrayList<>();
 
-        DateTimeFormatter inputFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-        DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("MM-dd");
-
-        for (String dateStr : sortedDates) {
-            // 格式化日期展示 (去掉年份)
-            try {
-                LocalDate date = LocalDate.parse(dateStr, inputFormatter);
-                displayDates.add(date.format(outputFormatter));
-            } catch (Exception e) {
-                displayDates.add(dateStr); // 兜底
-            }
-
+        LocalDate cursor = rangeStart;
+        while (!cursor.isAfter(rangeEnd)) {
+            String dateStr = cursor.toString(); // "yyyy-MM-dd"
+            displayDates.add(cursor.format(outputFormatter));
             finalAmounts.add(amountMap.getOrDefault(dateStr, BigDecimal.ZERO));
             finalProfits.add(profitMap.getOrDefault(dateStr, BigDecimal.ZERO));
+            cursor = cursor.plusDays(1);
         }
 
         TrendChartVO vo = new TrendChartVO();

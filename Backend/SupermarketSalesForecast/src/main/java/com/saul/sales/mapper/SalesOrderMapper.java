@@ -23,4 +23,10 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
 
     @Select("SELECT payment_type as paymentType, SUM(total_amount) as amount FROM sales_order WHERE sale_date BETWEEN #{startDate} AND #{endDate} GROUP BY payment_type")
     List<Map<String, Object>> getPaymentPie(@Param("startDate") String startDate, @Param("endDate") String endDate);
+
+    /**
+     * 查询单日订单数
+     */
+    @Select("SELECT COUNT(*) as orderCount FROM sales_order WHERE sale_date = #{date}")
+    Integer getDailyOrderCount(@Param("date") String date);
 }

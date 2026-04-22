@@ -31,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -78,18 +79,23 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         LambdaQueryWrapper<Product> wrapper = buildQueryWrapper(queryDTO);
         List<Product> list = this.list(wrapper);
 
+        // 1a. 预加载分类名称 Map，避免逐行查询
+        Map<Long, String> categoryNameMap = new HashMap<>();
+        productCategoryMapper.selectList(null)
+                .forEach(c -> categoryNameMap.put(c.getId(), c.getName()));
+
         // 2. 定义字段映射字典
         Map<String, String> fieldMap = new LinkedHashMap<>();
         fieldMap.put("productCode", "商品编码");
         fieldMap.put("name", "商品名称");
-        fieldMap.put("categoryId", "所属分类ID");
+        fieldMap.put("categoryId", "所属分类");
         fieldMap.put("specification", "规格");
         fieldMap.put("unit", "单位");
         fieldMap.put("purchasePrice", "进货价");
         fieldMap.put("salePrice", "零售价");
         fieldMap.put("stock", "当前库存");
         fieldMap.put("safetyStock", "安全库存");
-        fieldMap.put("status", "状态(1上架/0下架)");
+        fieldMap.put("status", "状态(上架/下架)");
 
         // 3. 解析前端传入的字段，并强制 productCode 在第一列
         List<String> fieldList = new ArrayList<>();
@@ -126,7 +132,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         for (Product product : list) {
             List<Object> row = new ArrayList<>();
             for (String field : fieldList) {
-                row.add(getFieldValue(product, field));
+                row.add(getFieldValue(product, field, categoryNameMap));
             }
             // 每一行数据的末尾留空，不再重复填充时间
             row.add("");
@@ -158,18 +164,18 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     /**
      * 根据字段名获取实体类对应的值
      */
-    private Object getFieldValue(Product p, String field) {
+    private Object getFieldValue(Product p, String field, Map<Long, String> categoryNameMap) {
         return switch (field) {
             case "productCode" -> p.getProductCode();
             case "name" -> p.getName();
-            case "categoryId" -> p.getCategoryId();
+            case "categoryId" -> categoryNameMap.getOrDefault(p.getCategoryId(), "未知分类");
             case "specification" -> p.getSpecification();
             case "unit" -> p.getUnit();
             case "purchasePrice" -> p.getPurchasePrice();
             case "salePrice" -> p.getSalePrice();
             case "stock" -> p.getStock();
             case "safetyStock" -> p.getSafetyStock();
-            case "status" -> p.getStatus();
+            case "status" -> p.getStatus() != null && p.getStatus() == 1 ? "上架" : "下架";
             default -> null;
         };
     }
@@ -414,9 +420,11 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         vo.setRecent30Amount(recent30TotalAmount);
 
         // 7. 近30天 vs 历史日均对比
-        if (saleDays > 0 && totalQuantity > 0) {
+        // 两边均以自然日历天数为分母，保证口径一致：历史日均 = 总销量 / 首末销售日跨度天数
+        if (saleDays > 0 && totalQuantity > 0 && vo.getFirstSaleDate() != null && vo.getLastSaleDate() != null) {
+            long historySpanDays = ChronoUnit.DAYS.between(vo.getFirstSaleDate(), vo.getLastSaleDate()) + 1;
             BigDecimal historyDailyAvg = new BigDecimal(totalQuantity)
-                    .divide(new BigDecimal(saleDays), 2, RoundingMode.HALF_UP);
+                    .divide(new BigDecimal(historySpanDays), 2, RoundingMode.HALF_UP);
             BigDecimal recentDailyAvg = new BigDecimal(recent30TotalQty)
                     .divide(new BigDecimal(30), 2, RoundingMode.HALF_UP);
 

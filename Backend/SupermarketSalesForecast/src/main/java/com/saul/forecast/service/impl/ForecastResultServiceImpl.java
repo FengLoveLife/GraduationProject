@@ -80,8 +80,7 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         // 查询预测结果
         List<ForecastResult> results = this.list(wrapper);
 
-        // 转换为 VO 并补充库存信息
-        return convertToVOList(results, queryDTO.getStockStatus());
+        return convertToVOList(results);
     }
 
     @Override
@@ -172,19 +171,24 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
                             (a, b) -> a
                     ));
 
-            // 计算预测总销售额
+            // 计算预测总销售额，同时按一级分类汇总
+            List<ProductCategory> allCategories = productCategoryMapper.selectList(null);
+            Map<Long, ProductCategory> catMap = allCategories.stream()
+                    .collect(Collectors.toMap(ProductCategory::getId, c -> c));
+
+            Map<String, java.math.BigDecimal> categoryAmounts = new LinkedHashMap<>();
             for (ForecastResult result : results) {
-                if (result.getProductId() != null && result.getPredictedQuantity() != null) {
-                    java.math.BigDecimal price = priceMap.getOrDefault(result.getProductId(), java.math.BigDecimal.ZERO);
-                    totalPredictedAmount = totalPredictedAmount.add(price.multiply(new java.math.BigDecimal(result.getPredictedQuantity())));
+                if (result.getProductId() == null || result.getPredictedQuantity() == null) continue;
+                java.math.BigDecimal price = priceMap.getOrDefault(result.getProductId(), java.math.BigDecimal.ZERO);
+                java.math.BigDecimal amount = price.multiply(new java.math.BigDecimal(result.getPredictedQuantity()));
+                totalPredictedAmount = totalPredictedAmount.add(amount);
+                // 归到一级分类
+                if (result.getCategoryId() != null) {
+                    String rootName = findRootCategory(result.getCategoryId(), catMap);
+                    categoryAmounts.merge(rootName, amount, java.math.BigDecimal::add);
                 }
             }
-        }
-
-        Map<String, Integer> categoryCount = new HashMap<>();
-        for (ForecastResult result : results) {
-            String categoryName = result.getCategoryName() != null ? result.getCategoryName() : "未分类";
-            categoryCount.merge(categoryName, 1, Integer::sum);
+            summary.put("categoryAmounts", categoryAmounts);
         }
 
         // 查询昨天的实际销售数据（预测日期的前一天）
@@ -237,7 +241,6 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         summary.put("totalProducts", totalProducts);
         summary.put("totalPredicted", totalPredicted);
         summary.put("totalPredictedAmount", totalPredictedAmount);
-        summary.put("categoryCount", categoryCount);
 
         // 与昨日对比数据
         summary.put("yesterdayQuantity", yesterdayTotalQuantity.intValue());
@@ -396,72 +399,8 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         return result;
     }
 
-    /**
-     * 查询预测数据按日期汇总
-     */
-    private List<Map<String, Object>> getForecastSumByDate(String startDate, String endDate) {
-        List<ForecastResult> results = this.list(
-            new LambdaQueryWrapper<ForecastResult>()
-                .between(ForecastResult::getForecastDate, parseDate(startDate), parseDate(endDate))
-        );
-
-        Map<LocalDate, Integer> sumMap = results.stream()
-            .collect(Collectors.groupingBy(
-                ForecastResult::getForecastDate,
-                Collectors.summingInt(r -> r.getPredictedQuantity() != null ? r.getPredictedQuantity() : 0)
-            ));
-
-        List<Map<String, Object>> resultList = new ArrayList<>();
-        for (Map.Entry<LocalDate, Integer> entry : sumMap.entrySet()) {
-            Map<String, Object> m = new HashMap<>();
-            m.put("date", entry.getKey().toString());
-            m.put("predictedQuantity", entry.getValue());
-            resultList.add(m);
-        }
-        return resultList;
-    }
-
-    private List<ForecastResultVO> convertToVOList(List<ForecastResult> results, String stockStatusFilter) {
-        List<ForecastResultVO> voList = new ArrayList<>();
-
-        // 收集所有商品ID和分类ID
-        Set<Long> productIds = new HashSet<>();
-        Set<Long> categoryIds = new HashSet<>();
-        for (ForecastResult result : results) {
-            if (result.getProductId() != null) productIds.add(result.getProductId());
-            if (result.getCategoryId() != null) categoryIds.add(result.getCategoryId());
-        }
-
-        // 批量查商品（库存、安全库存）
-        Map<Long, Product> productMap = new HashMap<>();
-        if (!productIds.isEmpty()) {
-            productMapper.selectBatchIds(productIds).forEach(p -> productMap.put(p.getId(), p));
-        }
-
-        // 批量查分类（补货周期）
-        Map<Long, Integer> cycleMap = new HashMap<>();
-        if (!categoryIds.isEmpty()) {
-            productCategoryMapper.selectBatchIds(categoryIds)
-                    .forEach(c -> cycleMap.put(c.getId(),
-                            c.getRestockCycleDays() != null ? c.getRestockCycleDays() : 7));
-        }
-
-        // 查过去30天历史日均销量（按商品）
-        Map<Long, Double> histAvgMap = new HashMap<>();
-        try {
-            String endDate = LocalDate.now().toString();
-            String startDate = LocalDate.now().minusDays(30).toString();
-            List<Map<String, Object>> avgList = salesOrderItemMapper.getProductDailyAvgBatch(startDate, endDate);
-            for (Map<String, Object> row : avgList) {
-                Long pid = ((Number) row.get("productId")).longValue();
-                Double avg = row.get("dailyAvg") != null ? ((Number) row.get("dailyAvg")).doubleValue() : 0.0;
-                histAvgMap.put(pid, avg);
-            }
-        } catch (Exception e) {
-            log.warn("查询历史日均失败，将跳过: {}", e.getMessage());
-        }
-
-        for (ForecastResult result : results) {
+    private List<ForecastResultVO> convertToVOList(List<ForecastResult> results) {
+        return results.stream().map(result -> {
             ForecastResultVO vo = new ForecastResultVO();
             vo.setId(result.getId());
             vo.setForecastDate(result.getForecastDate());
@@ -471,41 +410,20 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
             vo.setCategoryId(result.getCategoryId());
             vo.setCategoryName(result.getCategoryName());
             vo.setPredictedQuantity(result.getPredictedQuantity());
+            return vo;
+        }).collect(Collectors.toList());
+    }
 
-            // 补货周期
-            Integer cycleDays = cycleMap.getOrDefault(result.getCategoryId(), 7);
-            vo.setRestockCycleDays(cycleDays);
-
-            // 历史日均（前端用于混合公式，回退到预测值）
-            double histAvg = histAvgMap.getOrDefault(result.getProductId(),
-                    result.getPredictedQuantity() != null ? result.getPredictedQuantity().doubleValue() : 0.0);
-            vo.setHistoricalDailyAvg(histAvg);
-
-            Product product = productMap.get(result.getProductId());
-            if (product != null) {
-                vo.setCurrentStock(product.getStock());
-                vo.setSafetyStock(product.getSafetyStock());
-                // suggestedPurchase 由前端按周期公式计算，这里给默认值兜底
-                int suggestedPurchase = Math.max(0,
-                        result.getPredictedQuantity() + product.getSafetyStock() - product.getStock());
-                vo.setSuggestedPurchase(suggestedPurchase);
-                vo.setStockStatus(calculateStockStatus(
-                        product.getStock(), product.getSafetyStock(), histAvg, cycleDays));
-            } else {
-                vo.setCurrentStock(0);
-                vo.setSafetyStock(0);
-                vo.setSuggestedPurchase(0);
-                vo.setStockStatus("unknown");
-            }
-
-            if (stockStatusFilter != null && !stockStatusFilter.isEmpty()) {
-                if (!stockStatusFilter.equals(vo.getStockStatus())) continue;
-            }
-
-            voList.add(vo);
+    /**
+     * 沿父节点链向上查找一级（根）分类名称
+     */
+    private String findRootCategory(Long categoryId, Map<Long, ProductCategory> catMap) {
+        ProductCategory cat = catMap.get(categoryId);
+        if (cat == null) return "未分类";
+        while (cat.getParentId() != null && cat.getParentId() > 0 && catMap.containsKey(cat.getParentId())) {
+            cat = catMap.get(cat.getParentId());
         }
-
-        return voList;
+        return cat.getName() != null ? cat.getName() : "未分类";
     }
 
     /**
@@ -517,28 +435,5 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         } catch (Exception e) {
             throw new RuntimeException("日期格式错误，请使用 yyyy-MM-dd 格式：" + dateStr);
         }
-    }
-
-    /**
-     * 三灯策略（统一标准）：
-     * 红灯 warning     : stock <= safetyStock              库存触底，必须立即补
-     * 黄灯 needPurchase: stock <= safetyStock + dailyAvg×cycle×30%  本周期70%已消耗，该下单了
-     * 绿灯 sufficient  : 其余                              库存充足
-     */
-    private String calculateStockStatus(Integer currentStock, Integer safetyStock,
-                                        Double dailyAvg, Integer restockCycleDays) {
-        if (currentStock == null) currentStock = 0;
-        if (safetyStock == null) safetyStock = 0;
-        if (dailyAvg == null || dailyAvg <= 0) dailyAvg = 0.0;
-        if (restockCycleDays == null || restockCycleDays <= 0) restockCycleDays = 7;
-
-        // 红灯：已触及安全底线
-        if (currentStock <= safetyStock) return "warning";
-
-        // 黄灯线 = 安全库存 + 周期日均 × 30%
-        double yellowLine = safetyStock + dailyAvg * restockCycleDays * 0.3;
-        if (currentStock <= yellowLine) return "needPurchase";
-
-        return "sufficient";
     }
 }

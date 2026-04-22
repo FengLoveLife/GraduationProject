@@ -21,10 +21,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(jwtInterceptor)
-                // 只拦截业务接口（按你的约定，API 统一走 /api）
+                // 【测试阶段】JWT 已关闭：/apii/** 不匹配任何真实路径，等效于全放行
+                // 【正式上线】将下面两行对调注释即可重新开启 JWT 拦截
                .addPathPatterns("/api/**")
-                //先模拟不开启
-                //.addPathPatterns("/apii/**")
+               // .addPathPatterns("/apii/**")
                 // 放行登录接口
                 .excludePathPatterns("/api/login")
                 // 开发阶段：放行预测相关接口（方便前端调试）

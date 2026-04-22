@@ -77,28 +77,22 @@
 
     <!-- 预测结果统计 -->
     <el-row :gutter="16" class="stat-row" v-if="allResults.length > 0">
-      <el-col :span="6">
+      <el-col :span="8">
         <div class="stat-item stat-blue">
           <div class="stat-value">{{ productCount }}</div>
           <div class="stat-label">预测商品数</div>
         </div>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="8">
         <div class="stat-item stat-green">
-          <div class="stat-value">{{ sufficientCount }}</div>
-          <div class="stat-label">库存充足</div>
+          <div class="stat-value">{{ totalPredictedQty }}</div>
+          <div class="stat-label">周期预测总量（件）</div>
         </div>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="8">
         <div class="stat-item stat-orange">
-          <div class="stat-value">{{ needPurchaseCount }}</div>
-          <div class="stat-label">库存紧张</div>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-item stat-red">
-          <div class="stat-value">{{ warningCount }}</div>
-          <div class="stat-label">库存告急</div>
+          <div class="stat-value">{{ predictForm.days }}</div>
+          <div class="stat-label">预测天数（天）</div>
         </div>
       </el-col>
     </el-row>
@@ -135,20 +129,15 @@
             </div>
           </div>
 
-          <!-- 搜索和筛选 -->
+          <!-- 搜索 -->
           <div class="header-actions">
             <el-input
               v-model="searchKeyword"
               placeholder="搜索商品名称"
               :prefix-icon="Search"
               clearable
-              style="width: 200px; margin-right: 12px"
+              style="width: 220px"
             />
-            <el-select v-model="filterStatus" placeholder="筛选状态" clearable style="width: 130px">
-              <el-option label="库存充足" value="sufficient" />
-              <el-option label="库存紧张" value="needPurchase" />
-              <el-option label="库存告急" value="warning" />
-            </el-select>
           </div>
         </div>
       </template>
@@ -185,17 +174,6 @@
             <span class="predict-avg">{{ row.avgPredicted }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="currentStock" label="当前库存" width="100" align="center">
-          <template #default="{ row }">
-            <span :class="getStockClass(row)">{{ row.currentStock }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="safetyStock" label="安全库存" width="90" align="center" />
-        <el-table-column label="状态" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag :type="getStatusType(row)" size="small">{{ getStatusText(row) }}</el-tag>
-          </template>
-        </el-table-column>
       </el-table>
 
       <!-- 按天浏览视图 -->
@@ -228,17 +206,6 @@
         <el-table-column prop="predictedQuantity" label="预测销量" width="100" align="center">
           <template #default="{ row }">
             <span class="predict-value">{{ row.predictedQuantity }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="currentStock" label="当前库存" width="100" align="center">
-          <template #default="{ row }">
-            <span :class="getStockClass(row)">{{ row.currentStock }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="safetyStock" label="安全库存" width="90" align="center" />
-        <el-table-column label="状态" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag :type="getStatusType(row)" size="small">{{ getStatusText(row) }}</el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -276,29 +243,7 @@
             <el-descriptions-item label="周期预测总量">
               <el-tag type="primary" size="large">{{ currentProduct.totalPredicted || currentProduct.predictedQuantity }} 件</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="状态">
-              <el-tag :type="getStatusType(currentProduct)" size="large">{{ getStatusText(currentProduct) }}</el-tag>
-            </el-descriptions-item>
           </el-descriptions>
-        </div>
-
-        <!-- 库存分析 -->
-        <div class="detail-section">
-          <div class="section-title">库存分析</div>
-          <div class="stock-analysis">
-            <div class="stock-item">
-              <div class="stock-label">当前库存</div>
-              <div class="stock-value">{{ currentProduct.currentStock }}</div>
-            </div>
-            <div class="stock-item">
-              <div class="stock-label">安全库存</div>
-              <div class="stock-value">{{ currentProduct.safetyStock }}</div>
-            </div>
-            <div class="stock-item">
-              <div class="stock-label">周期预测</div>
-              <div class="stock-value primary">{{ currentProduct.totalPredicted || currentProduct.predictedQuantity }}</div>
-            </div>
-          </div>
         </div>
 
         <!-- 逐日预测（多天时展示） -->
@@ -329,9 +274,8 @@
 import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
-import { Cpu, InfoFilled, Search, DataAnalysis, Calendar } from '@element-plus/icons-vue'
+import { Cpu, InfoFilled, Search, DataAnalysis, Calendar, Clock } from '@element-plus/icons-vue'
 import { runForecast, getForecastResults, getForecastVsActual, getForecastStatus } from '@/api/forecast'
-import { Clock } from '@element-plus/icons-vue'
 
 const loading = ref(false)
 const chartLoading = ref(false)
@@ -368,9 +312,8 @@ const today = new Date().toISOString().split('T')[0]
 // 视图模式：summary（按商品汇总）/ daily（按天浏览）
 const viewMode = ref('summary')
 
-// 搜索和筛选
+// 搜索
 const searchKeyword = ref('')
-const filterStatus = ref('')
 
 // 全部原始预测结果（多天时包含所有日期的数据）
 const allResults = ref([])
@@ -416,19 +359,12 @@ const summaryResults = computed(() => {
         productName: item.productName,
         categoryId: item.categoryId,
         categoryName: item.categoryName,
-        currentStock: item.currentStock,
-        safetyStock: item.safetyStock,
         totalPredicted: 0,
         dailyPredictions: [],
-        stockStatus: item.stockStatus,
-        restockCycleDays: item.restockCycleDays || 7,
-        historicalDailyAvg: item.historicalDailyAvg ?? null
       })
     }
     const entry = productMap.get(pid)
     entry.totalPredicted += item.predictedQuantity || 0
-    entry.restockCycleDays = item.restockCycleDays || entry.restockCycleDays
-    entry.historicalDailyAvg = item.historicalDailyAvg ?? entry.historicalDailyAvg
     entry.dailyPredictions.push({
       date: item.forecastDate,
       predictedQuantity: item.predictedQuantity
@@ -437,52 +373,18 @@ const summaryResults = computed(() => {
 
   return Array.from(productMap.values()).map(p => {
     const days = p.dailyPredictions.length || 1
-    const restockCycle = p.restockCycleDays || 7
-    const predictDailyAvg = p.totalPredicted / days
-    const histAvg = p.historicalDailyAvg ?? predictDailyAvg
-
-    // 根据补货周期选择日均计算方式
-    let effectiveDailyAvg
-    if (restockCycle <= 7) {
-      // 短周期：频繁进货，完全信任近期预测
-      effectiveDailyAvg = predictDailyAvg
-    } else if (restockCycle < 15) {
-      // 中周期：预测60% + 历史40%
-      effectiveDailyAvg = predictDailyAvg * 0.6 + histAvg * 0.4
-    } else {
-      // 长周期：单次进货量大，历史规律更重要，预测30% + 历史70%
-      effectiveDailyAvg = predictDailyAvg * 0.3 + histAvg * 0.7
-    }
-
-    // 日均预测展示纯 AI 预测日均（totalPredicted / 预测天数），与周期预测总量保持一致
-    p.avgPredicted = Math.round(predictDailyAvg)
-
-    // 三灯策略（统一标准）
-    // 红灯：stock <= safetyStock
-    // 黄灯：stock <= safetyStock + dailyAvg × cycle × 30%
-    const yellowLine = p.safetyStock + effectiveDailyAvg * restockCycle * 0.3
-    if (p.currentStock <= p.safetyStock) {
-      p.stockStatus = 'warning'      // 红灯：触底，立即补
-    } else if (p.currentStock <= yellowLine) {
-      p.stockStatus = 'needPurchase' // 黄灯：周期70%已消耗，该下单了
-    } else {
-      p.stockStatus = 'sufficient'   // 绿灯：充足
-    }
+    p.avgPredicted = Math.round(p.totalPredicted / days)
     p.dailyPredictions.sort((a, b) => a.date.localeCompare(b.date))
     return p
   })
 })
 
 const filteredSummary = computed(() => {
-  let list = summaryResults.value
-  if (searchKeyword.value) {
-    const kw = searchKeyword.value.toLowerCase()
-    list = list.filter(i => i.productName.toLowerCase().includes(kw) || i.productCode.toLowerCase().includes(kw))
-  }
-  if (filterStatus.value) {
-    list = list.filter(i => i.stockStatus === filterStatus.value)
-  }
-  return list
+  if (!searchKeyword.value) return summaryResults.value
+  const kw = searchKeyword.value.toLowerCase()
+  return summaryResults.value.filter(i =>
+    i.productName.toLowerCase().includes(kw) || i.productCode.toLowerCase().includes(kw)
+  )
 })
 
 const paginatedSummary = computed(() => {
@@ -498,15 +400,11 @@ const dailyResults = computed(() => {
 })
 
 const filteredDaily = computed(() => {
-  let list = dailyResults.value
-  if (searchKeyword.value) {
-    const kw = searchKeyword.value.toLowerCase()
-    list = list.filter(i => i.productName.toLowerCase().includes(kw) || i.productCode.toLowerCase().includes(kw))
-  }
-  if (filterStatus.value) {
-    list = list.filter(i => i.stockStatus === filterStatus.value)
-  }
-  return list
+  if (!searchKeyword.value) return dailyResults.value
+  const kw = searchKeyword.value.toLowerCase()
+  return dailyResults.value.filter(i =>
+    i.productName.toLowerCase().includes(kw) || i.productCode.toLowerCase().includes(kw)
+  )
 })
 
 const paginatedDaily = computed(() => {
@@ -517,37 +415,9 @@ const paginatedDaily = computed(() => {
 // ===================== 统计数据（基于汇总视图） =====================
 
 const productCount = computed(() => summaryResults.value.length)
-
-const sufficientCount = computed(() =>
-  summaryResults.value.filter(i => i.stockStatus === 'sufficient').length
+const totalPredictedQty = computed(() =>
+  summaryResults.value.reduce((sum, p) => sum + p.totalPredicted, 0)
 )
-const warningCount = computed(() =>
-  summaryResults.value.filter(i => i.stockStatus === 'warning').length
-)
-const needPurchaseCount = computed(() =>
-  summaryResults.value.filter(i => i.stockStatus === 'needPurchase').length
-)
-
-// ===================== 样式工具函数 =====================
-
-const getStockClass = (row) => {
-  if (row.currentStock < row.safetyStock) return 'stock-danger'
-  const predicted = row.totalPredicted || row.predictedQuantity || 0
-  if (row.currentStock < predicted) return 'stock-warning'
-  return 'stock-normal'
-}
-
-const getStatusType = (row) => {
-  if (row.stockStatus === 'warning') return 'danger'       // 红灯
-  if (row.stockStatus === 'needPurchase') return 'warning' // 黄灯
-  return 'success'                                         // 绿灯
-}
-
-const getStatusText = (row) => {
-  if (row.stockStatus === 'warning') return '库存告急'
-  if (row.stockStatus === 'needPurchase') return '库存紧张'
-  return '库存充足'
-}
 
 const formatShortDate = (dateStr) => {
   if (!dateStr) return ''
@@ -697,7 +567,6 @@ const offsetDate = (dateStr, days) => {
 watch(viewMode, () => { pagination.page = 1 })
 watch(selectedDate, () => { pagination.page = 1 })
 watch(searchKeyword, () => { pagination.page = 1 })
-watch(filterStatus, () => { pagination.page = 1 })
 
 // 关闭弹窗时销毁图表
 watch(detailVisible, (val) => {
