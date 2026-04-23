@@ -2,6 +2,7 @@ package com.saul.forecast.vo;
 
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
@@ -32,4 +33,10 @@ public class ForecastResultVO {
 
     /** 预测销量 */
     private Integer predictedQuantity;
+
+    /** 商品零售价（用于前端计算预测销售额） */
+    private BigDecimal sellingPrice;
+
+    /** 商品进货价（用于前端计算预测毛利） */
+    private BigDecimal purchasePrice;
 }

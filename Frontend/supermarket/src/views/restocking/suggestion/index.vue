@@ -37,7 +37,7 @@
         <div class="summary-card summary-green">
           <div class="summary-icon"><Box /></div>
           <div class="summary-content">
-            <div class="summary-value">{{ totalQuantity }}</div>
+            <div class="summary-value">{{ allTotalQuantity }}</div>
             <div class="summary-label">总进货数量</div>
           </div>
         </div>
@@ -46,7 +46,7 @@
         <div class="summary-card summary-purple">
           <div class="summary-icon"><Money /></div>
           <div class="summary-content">
-            <div class="summary-value">¥{{ formatMoney(totalAmount) }}</div>
+            <div class="summary-value">¥{{ formatMoney(allTotalAmount) }}</div>
             <div class="summary-label">预计进货金额</div>
           </div>
         </div>
@@ -265,17 +265,13 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Document, Goods, Box, Money, Calendar, Refresh, Download, Warning, AlarmClock } from '@element-plus/icons-vue'
-import { generateSuggestions, getSuggestionList, getSuggestionSummary, ignoreSuggestion, adjustSuggestionQuantity } from '@/api/restocking'
-import { createPurchaseOrder } from '@/api/restocking'
+import { Document, Box, Money, Refresh, Download, Warning, AlarmClock } from '@element-plus/icons-vue'
+import { generateSuggestions, getSuggestionList, getSuggestionSummary, adjustSuggestionQuantity, createPurchaseOrder } from '@/api/restocking'
 
 const router = useRouter()
 
 // 加载状态
 const loading = ref(false)
-
-// 预测日期
-const predictDate = ref('')
 
 // 灯位筛选：0=全部, 1=仅红灯, 2=仅黄灯
 const lightFilter = ref(0)
@@ -352,32 +348,25 @@ const handleSelectionChange = (rows) => {
   selectedIds.value = new Set(selectedIds.value)
 }
 
-// 计算属性（基于已选行）
-const totalQuantity = computed(() => {
-  return selectedRows.value.reduce((sum, item) => sum + (item.purchaseQty || 0), 0)
-})
+// 全部建议合计（用于顶部汇总卡片）
+const allTotalQuantity = computed(() =>
+  suggestions.value.reduce((sum, item) => sum + (item.purchaseQty || 0), 0)
+)
+const allTotalAmount = computed(() =>
+  suggestions.value.reduce((sum, item) => sum + (item.purchaseQty || 0) * (item.purchasePrice || 0), 0)
+)
 
-const totalAmount = computed(() => {
-  return selectedRows.value.reduce((sum, item) => sum + (item.purchaseQty || 0) * (item.purchasePrice || 0), 0)
-})
+// 已勾选合计（用于底部确认栏和生成进货单弹窗）
+const totalQuantity = computed(() =>
+  selectedRows.value.reduce((sum, item) => sum + (item.purchaseQty || 0), 0)
+)
+const totalAmount = computed(() =>
+  selectedRows.value.reduce((sum, item) => sum + (item.purchaseQty || 0) * (item.purchasePrice || 0), 0)
+)
 
 // 格式化金额
 const formatMoney = (value) => {
   return Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-// 表格合计
-const getSummary = ({ columns }) => {
-  const totalPages = Math.ceil(suggestions.value.length / pagination.pageSize)
-  const sums = columns.map((column, index) => {
-    if (index === 0) return '合计'
-    if (column.label === '商品信息') {
-      return `共 ${suggestions.value.length} 项，第 ${pagination.currentPage} / ${totalPages} 页`
-    }
-    if (column.label === '小计') return '¥' + formatMoney(totalAmount.value)
-    return ''
-  })
-  return sums
 }
 
 // 获取进货建议

@@ -77,19 +77,25 @@
 
     <!-- 预测结果统计 -->
     <el-row :gutter="16" class="stat-row" v-if="allResults.length > 0">
-      <el-col :span="8">
+      <el-col :span="6">
         <div class="stat-item stat-blue">
           <div class="stat-value">{{ productCount }}</div>
           <div class="stat-label">预测商品数</div>
         </div>
       </el-col>
-      <el-col :span="8">
+      <el-col :span="6">
         <div class="stat-item stat-green">
           <div class="stat-value">{{ totalPredictedQty }}</div>
           <div class="stat-label">周期预测总量（件）</div>
         </div>
       </el-col>
-      <el-col :span="8">
+      <el-col :span="6">
+        <div class="stat-item stat-purple">
+          <div class="stat-value">{{ formatAmt(totalPredictedAmount) }}</div>
+          <div class="stat-label">周期预测总销售额</div>
+        </div>
+      </el-col>
+      <el-col :span="6">
         <div class="stat-item stat-orange">
           <div class="stat-value">{{ predictForm.days }}</div>
           <div class="stat-label">预测天数（天）</div>
@@ -129,14 +135,27 @@
             </div>
           </div>
 
-          <!-- 搜索 -->
+          <!-- 分类筛选 + 搜索 -->
           <div class="header-actions">
+            <el-select
+              v-model="selectedCategory"
+              placeholder="全部分类"
+              clearable
+              style="width: 130px"
+            >
+              <el-option
+                v-for="cat in categoryOptions"
+                :key="cat"
+                :label="cat"
+                :value="cat"
+              />
+            </el-select>
             <el-input
               v-model="searchKeyword"
               placeholder="搜索商品名称"
               :prefix-icon="Search"
               clearable
-              style="width: 220px"
+              style="width: 200px"
             />
           </div>
         </div>
@@ -169,9 +188,14 @@
             <span class="predict-total">{{ row.totalPredicted }}<span class="unit"> 件</span></span>
           </template>
         </el-table-column>
-        <el-table-column label="日均预测" width="100" align="center">
+        <el-table-column label="日均预测（件/天）" width="130" align="center">
           <template #default="{ row }">
             <span class="predict-avg">{{ row.avgPredicted }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="周期预测销售额" width="140" align="center">
+          <template #default="{ row }">
+            <span class="predict-amount">{{ formatAmt(row.predictedAmount) }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -206,6 +230,11 @@
         <el-table-column prop="predictedQuantity" label="预测销量" width="100" align="center">
           <template #default="{ row }">
             <span class="predict-value">{{ row.predictedQuantity }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="单日预测销售额" width="140" align="center">
+          <template #default="{ row }">
+            <span class="predict-amount">{{ formatAmt((row.predictedQuantity || 0) * Number(row.sellingPrice || 0)) }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -243,6 +272,9 @@
             <el-descriptions-item label="周期预测总量">
               <el-tag type="primary" size="large">{{ currentProduct.totalPredicted || currentProduct.predictedQuantity }} 件</el-tag>
             </el-descriptions-item>
+            <el-descriptions-item label="周期预测销售额" v-if="currentProduct.predictedAmount != null">
+              <el-tag type="success" size="large">{{ formatAmt(currentProduct.predictedAmount) }}</el-tag>
+            </el-descriptions-item>
           </el-descriptions>
         </div>
 
@@ -253,6 +285,7 @@
             <div v-for="dp in currentProduct.dailyPredictions" :key="dp.date" class="day-pill">
               <div class="day-date">{{ formatShortDate(dp.date) }}</div>
               <div class="day-value">{{ dp.predictedQuantity }}<span class="day-unit">件</span></div>
+              <div class="day-amount">{{ formatAmt((dp.predictedQuantity || 0) * (currentProduct.sellingPrice || 0)) }}</div>
             </div>
           </div>
         </div>
@@ -292,7 +325,7 @@ const loadModelStatus = async () => {
     if (res.code === 200 && res.data) {
       const d = res.data
       modelStatus.loaded = d.model_loaded || false
-      const stats = d.training_stats || {}
+      const stats = d.model_info || {}
       modelStatus.mae = stats.mae != null ? stats.mae.toFixed(2) : null
       modelStatus.mape = stats.mape != null ? stats.mape.toFixed(1) : null
       modelStatus.r2 = stats.r2 != null ? stats.r2.toFixed(3) : null
@@ -312,8 +345,9 @@ const today = new Date().toISOString().split('T')[0]
 // 视图模式：summary（按商品汇总）/ daily（按天浏览）
 const viewMode = ref('summary')
 
-// 搜索
+// 搜索 & 分类筛选
 const searchKeyword = ref('')
+const selectedCategory = ref('')
 
 // 全部原始预测结果（多天时包含所有日期的数据）
 const allResults = ref([])
@@ -359,7 +393,9 @@ const summaryResults = computed(() => {
         productName: item.productName,
         categoryId: item.categoryId,
         categoryName: item.categoryName,
+        sellingPrice: Number(item.sellingPrice || 0),
         totalPredicted: 0,
+        predictedAmount: 0,
         dailyPredictions: [],
       })
     }
@@ -373,18 +409,30 @@ const summaryResults = computed(() => {
 
   return Array.from(productMap.values()).map(p => {
     const days = p.dailyPredictions.length || 1
-    p.avgPredicted = Math.round(p.totalPredicted / days)
+    p.avgPredicted = (p.totalPredicted / days).toFixed(1)
+    p.predictedAmount = Math.round(p.totalPredicted * p.sellingPrice * 100) / 100
     p.dailyPredictions.sort((a, b) => a.date.localeCompare(b.date))
     return p
   })
 })
 
+const categoryOptions = computed(() => {
+  const cats = [...new Set(summaryResults.value.map(p => p.categoryName).filter(Boolean))]
+  return cats.sort()
+})
+
 const filteredSummary = computed(() => {
-  if (!searchKeyword.value) return summaryResults.value
-  const kw = searchKeyword.value.toLowerCase()
-  return summaryResults.value.filter(i =>
-    i.productName.toLowerCase().includes(kw) || i.productCode.toLowerCase().includes(kw)
-  )
+  let list = summaryResults.value
+  if (selectedCategory.value) {
+    list = list.filter(i => i.categoryName === selectedCategory.value)
+  }
+  if (searchKeyword.value) {
+    const kw = searchKeyword.value.toLowerCase()
+    list = list.filter(i =>
+      i.productName.toLowerCase().includes(kw) || i.productCode.toLowerCase().includes(kw)
+    )
+  }
+  return list
 })
 
 const paginatedSummary = computed(() => {
@@ -400,11 +448,17 @@ const dailyResults = computed(() => {
 })
 
 const filteredDaily = computed(() => {
-  if (!searchKeyword.value) return dailyResults.value
-  const kw = searchKeyword.value.toLowerCase()
-  return dailyResults.value.filter(i =>
-    i.productName.toLowerCase().includes(kw) || i.productCode.toLowerCase().includes(kw)
-  )
+  let list = dailyResults.value
+  if (selectedCategory.value) {
+    list = list.filter(i => i.categoryName === selectedCategory.value)
+  }
+  if (searchKeyword.value) {
+    const kw = searchKeyword.value.toLowerCase()
+    list = list.filter(i =>
+      i.productName.toLowerCase().includes(kw) || i.productCode.toLowerCase().includes(kw)
+    )
+  }
+  return list
 })
 
 const paginatedDaily = computed(() => {
@@ -418,6 +472,14 @@ const productCount = computed(() => summaryResults.value.length)
 const totalPredictedQty = computed(() =>
   summaryResults.value.reduce((sum, p) => sum + p.totalPredicted, 0)
 )
+const totalPredictedAmount = computed(() =>
+  summaryResults.value.reduce((sum, p) => sum + (p.predictedAmount || 0), 0)
+)
+
+const formatAmt = (v) => {
+  const n = Number(v || 0)
+  return n >= 10000 ? '¥' + (n / 10000).toFixed(2) + '万' : '¥' + n.toFixed(2)
+}
 
 const formatShortDate = (dateStr) => {
   if (!dateStr) return ''
@@ -567,6 +629,7 @@ const offsetDate = (dateStr, days) => {
 watch(viewMode, () => { pagination.page = 1 })
 watch(selectedDate, () => { pagination.page = 1 })
 watch(searchKeyword, () => { pagination.page = 1 })
+watch(selectedCategory, () => { pagination.page = 1 })
 
 // 关闭弹窗时销毁图表
 watch(detailVisible, (val) => {
@@ -707,10 +770,11 @@ onMounted(() => {
     padding: 20px; border-radius: 12px; text-align: center;
     .stat-value { font-size: 28px; font-weight: 800; margin-bottom: 4px; }
     .stat-label { font-size: 14px; opacity: 0.9; }
-    &.stat-blue { background: linear-gradient(135deg, #3B82F6, #60A5FA); color: #fff; }
-    &.stat-green { background: linear-gradient(135deg, #10B981, #34D399); color: #fff; }
+    &.stat-blue   { background: linear-gradient(135deg, #3B82F6, #60A5FA); color: #fff; }
+    &.stat-green  { background: linear-gradient(135deg, #10B981, #34D399); color: #fff; }
+    &.stat-purple { background: linear-gradient(135deg, #8B5CF6, #A78BFA); color: #fff; }
     &.stat-orange { background: linear-gradient(135deg, #F59E0B, #FBBF24); color: #fff; }
-    &.stat-red { background: linear-gradient(135deg, #EF4444, #F87171); color: #fff; }
+    &.stat-red    { background: linear-gradient(135deg, #EF4444, #F87171); color: #fff; }
   }
 }
 
@@ -727,7 +791,7 @@ onMounted(() => {
       display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
       .card-title { font-size: 16px; font-weight: 700; color: #334155; }
     }
-    .header-actions { display: flex; align-items: center; }
+    .header-actions { display: flex; align-items: center; gap: 10px; }
   }
 
   .view-toggle { flex-shrink: 0; }
@@ -744,8 +808,9 @@ onMounted(() => {
 
   .date-text { font-size: 13px; color: #64748b; }
   .predict-value { font-weight: 700; color: #3B82F6; font-size: 15px; }
-  .predict-total { font-weight: 800; color: #3B82F6; font-size: 16px; .unit { font-size: 12px; color: #94a3b8; } }
-  .predict-avg { font-weight: 600; color: #64748b; font-size: 14px; }
+  .predict-total  { font-weight: 800; color: #3B82F6; font-size: 16px; .unit { font-size: 12px; color: #94a3b8; } }
+  .predict-avg    { font-weight: 600; color: #64748b; font-size: 14px; }
+  .predict-amount { font-weight: 700; color: #8B5CF6; font-size: 14px; }
 
   .stock-normal { color: #10B981; font-weight: 600; }
   .stock-warning { color: #F59E0B; font-weight: 600; }
@@ -785,10 +850,11 @@ onMounted(() => {
     .day-pill {
       padding: 10px 16px; background: #EFF6FF; border-radius: 10px;
       text-align: center; min-width: 64px;
-      .day-date { font-size: 12px; color: #64748b; margin-bottom: 4px; }
-      .day-value { font-size: 18px; font-weight: 700; color: #3B82F6;
+      .day-date   { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+      .day-value  { font-size: 18px; font-weight: 700; color: #3B82F6;
         .day-unit { font-size: 11px; color: #94a3b8; }
       }
+      .day-amount { font-size: 11px; color: #8B5CF6; font-weight: 600; margin-top: 4px; }
     }
   }
 

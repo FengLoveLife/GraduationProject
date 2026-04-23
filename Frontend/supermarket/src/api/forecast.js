@@ -34,14 +34,6 @@ export const getForecastSummary = (forecastDate) => request.get('/forecast/summa
 })
 
 /**
- * 查询预测趋势数据（用于图表）
- * @param {number} productId - 商品 ID
- * @param {number} days - 查询天数
- */
-export const getForecastTrend = (productId, days = 7) =>
-  request.get('/forecast/trend', { params: { productId, days } })
-
-/**
  * 查询预测 vs 实际销量对比数据
  * @param {Object} params - 查询参数
  * @param {string} params.startDate - 开始日期 (YYYY-MM-DD)

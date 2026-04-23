@@ -80,7 +80,29 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         // 查询预测结果
         List<ForecastResult> results = this.list(wrapper);
 
-        return convertToVOList(results);
+        // 批量查询商品零售价，回填到 VO（一次 IN 查询，无 N+1）
+        Set<Long> productIds = results.stream()
+                .map(ForecastResult::getProductId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<Long, java.math.BigDecimal> priceMap = new HashMap<>();
+        Map<Long, java.math.BigDecimal> purchasePriceMap = new HashMap<>();
+        if (!productIds.isEmpty()) {
+            List<Product> products = productMapper.selectBatchIds(productIds);
+            priceMap = products.stream().collect(Collectors.toMap(
+                    Product::getId,
+                    p -> p.getSalePrice() != null ? p.getSalePrice() : java.math.BigDecimal.ZERO,
+                    (a, b) -> a
+            ));
+            purchasePriceMap = products.stream().collect(Collectors.toMap(
+                    Product::getId,
+                    p -> p.getPurchasePrice() != null ? p.getPurchasePrice() : java.math.BigDecimal.ZERO,
+                    (a, b) -> a
+            ));
+        }
+
+        return convertToVOList(results, priceMap, purchasePriceMap);
     }
 
     @Override
@@ -399,7 +421,9 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
         return result;
     }
 
-    private List<ForecastResultVO> convertToVOList(List<ForecastResult> results) {
+    private List<ForecastResultVO> convertToVOList(List<ForecastResult> results,
+                                                    Map<Long, java.math.BigDecimal> priceMap,
+                                                    Map<Long, java.math.BigDecimal> purchasePriceMap) {
         return results.stream().map(result -> {
             ForecastResultVO vo = new ForecastResultVO();
             vo.setId(result.getId());
@@ -410,6 +434,8 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
             vo.setCategoryId(result.getCategoryId());
             vo.setCategoryName(result.getCategoryName());
             vo.setPredictedQuantity(result.getPredictedQuantity());
+            vo.setSellingPrice(priceMap.getOrDefault(result.getProductId(), java.math.BigDecimal.ZERO));
+            vo.setPurchasePrice(purchasePriceMap.getOrDefault(result.getProductId(), java.math.BigDecimal.ZERO));
             return vo;
         }).collect(Collectors.toList());
     }
