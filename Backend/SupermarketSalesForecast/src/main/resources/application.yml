@@ -34,3 +34,9 @@ jwt:
 # Python 预测服务配置
 forecast:
   python-service-url: http://localhost:8000
+
+# POS 机对接配置（预留给收银系统实时推送销售数据）
+# 真实场景建议：一机一密（为每台 POS 分配独立 Token），此处简化为统一 Token
+pos:
+  enabled: true                         # 是否启用 POS 业务接口（false = 仅管理接口可用）
+  secret: "POS-SECRET-2026-CHANGE-ME"   # POS 推送密钥（X-POS-Token 头必须匹配）

@@ -28,7 +28,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 // 放行登录接口
                 .excludePathPatterns("/api/login")
                 // 开发阶段：放行预测相关接口（方便前端调试）
-                .excludePathPatterns("/api/forecast/**");
+                .excludePathPatterns("/api/forecast/**")
+                // POS 对接接口：业务接口使用 X-POS-Token 独立鉴权（不依赖 JWT），
+                // 管理接口供前端演示页面调用，开发阶段一并放行
+                .excludePathPatterns("/api/pos/**");
     }
 
     @Override

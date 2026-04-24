@@ -146,13 +146,13 @@
               <div class="quick-desc">智能销量预测</div>
             </div>
           </div>
-          <div class="quick-item" @click="goTo('/restocking/suggestion')">
+          <div class="quick-item" @click="goTo('/restocking/records')">
             <div class="quick-icon quick-orange">
               <el-icon><ShoppingCart /></el-icon>
             </div>
             <div class="quick-text">
-              <div class="quick-title">审核进货单</div>
-              <div class="quick-desc">AI进货建议</div>
+              <div class="quick-title">进货记录</div>
+              <div class="quick-desc">查看进货单流转</div>
             </div>
           </div>
           <div class="quick-item" @click="goTo('/inventory/dashboard')">
