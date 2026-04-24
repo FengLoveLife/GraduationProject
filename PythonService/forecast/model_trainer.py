@@ -47,7 +47,7 @@ class SalesPredictor:
 
     # 训练参数
     TRAIN_PARAMS = {
-        'num_boost_round': 500,     # 最大迭代次数
+        'num_boost_round': 1000,    # 最大迭代次数（数据量增大后适当提高上限，早停自动决定实际轮数）
         'early_stopping_rounds': 50,  # 早停轮数
     }
 
@@ -84,7 +84,7 @@ class SalesPredictor:
         # 记录特征列
         self.feature_cols = list(X.columns)
 
-        # 划分训练集和验证集
+        # 划分训练集和验证集（保留原始 y 用于指标计算）
         X_train, X_valid, y_train, y_valid = train_test_split(
             X, y, test_size=valid_ratio, random_state=42
         )
@@ -93,13 +93,10 @@ class SalesPredictor:
         print(f"验证集大小: {len(X_valid)}")
 
         # ========== 核心修复：声明类别特征 ==========
-        # product_id 和 category_id 是类别特征，需要告诉 LightGBM
-        # LightGBM 会自动处理类别特征，无需手动编码
         categorical_features = ['product_id', 'category_id']
         print(f"类别特征: {categorical_features}")
 
         # ========== 优化：显式转换为 category 类型 ==========
-        # 避免 LightGBM 内部的类型推断开销，提升训练速度约10%
         X_train['product_id'] = X_train['product_id'].astype('category')
         X_train['category_id'] = X_train['category_id'].astype('category')
         X_valid['product_id'] = X_valid['product_id'].astype('category')
@@ -122,13 +119,13 @@ class SalesPredictor:
 
         # 评估模型
         y_pred = self.model.predict(X_valid, num_iteration=self.model.best_iteration)
+        y_pred = np.clip(y_pred, 0, None)      # 防止极小负值
 
         mae = mean_absolute_error(y_valid, y_pred)
         rmse = np.sqrt(mean_squared_error(y_valid, y_pred))
         r2 = r2_score(y_valid, y_pred)
 
-        # 计算平均百分比误差（MAPE，对销量预测更有意义）
-        # 避免0值导致除零错误
+        # MAPE（在原始销量空间计算，排除零值）
         y_valid_nonzero = y_valid[y_valid > 0]
         y_pred_nonzero = y_pred[y_valid > 0]
         mape = np.mean(np.abs((y_valid_nonzero - y_pred_nonzero) / y_valid_nonzero)) * 100 if len(y_valid_nonzero) > 0 else 0
@@ -370,9 +367,12 @@ if __name__ == '__main__':
                 'day_of_week': 3,
                 'is_weekend': 0,
                 'is_holiday': 0,
+                'month': 4,
                 'weather_sunny': 0,
                 'weather_cloudy': 1,
-                'weather_rain': 0,
+                'weather_light_rain': 0,
+                'weather_heavy_rain': 0,
+                'weather_snow': 0,
                 'weather_hot': 0,
                 'sales_1d_ago': 25,
                 'sales_2d_ago': 22,

@@ -27,7 +27,7 @@ class FeatureEngineer:
     # ==================== 配置参数 ====================
 
     # 训练数据天数（用多少历史数据训练）
-    TRAINING_DAYS = 90  # 90天历史数据
+    TRAINING_DAYS = 180  # 180天历史数据（覆盖更多季节性规律）
 
     # 滑动窗口大小（用过去多少天的销量作为特征）
     WINDOW_SIZE = 7
@@ -323,10 +323,13 @@ class FeatureEngineer:
                     'day_of_week': current_row['day_of_week'],
                     'is_weekend': current_row['is_weekend'],
                     'is_holiday': current_row['is_holiday'],
+                    'month': current_date.month,
                     # 天气特征（编码）
                     'weather_sunny': 1 if current_row['weather'] == '晴' else 0,
                     'weather_cloudy': 1 if current_row['weather'] == '多云' else 0,
-                    'weather_rain': 1 if current_row['weather'] in ['小雨', '大雨'] else 0,
+                    'weather_light_rain': 1 if current_row['weather'] == '小雨' else 0,
+                    'weather_heavy_rain': 1 if current_row['weather'] == '大雨' else 0,
+                    'weather_snow': 1 if current_row['weather'] == '雪' else 0,
                     'weather_hot': 1 if current_row['weather'] == '炎热' else 0,
                     # 滑动窗口特征
                     'sales_1d_ago': past_7_days[-1],  # 昨天
@@ -352,8 +355,8 @@ class FeatureEngineer:
         # 分离特征和目标（product_id 和 category_id 作为类别特征）
         feature_cols = [
             'product_id', 'category_id',  # 商品身份特征（类别特征）
-            'day_of_week', 'is_weekend', 'is_holiday',
-            'weather_sunny', 'weather_cloudy', 'weather_rain', 'weather_hot',
+            'day_of_week', 'is_weekend', 'is_holiday', 'month',
+            'weather_sunny', 'weather_cloudy', 'weather_light_rain', 'weather_heavy_rain', 'weather_snow', 'weather_hot',
             'sales_1d_ago', 'sales_2d_ago', 'sales_3d_ago',
             'sales_7d_ago', 'sales_7d_avg', 'sales_7d_max', 'sales_7d_min'
         ]
@@ -469,9 +472,12 @@ class FeatureEngineer:
                     'day_of_week': day_of_week,
                     'is_weekend': is_weekend,
                     'is_holiday': is_holiday,
+                    'month': forecast_date.month,
                     'weather_sunny': 1 if weather == '晴' else 0,
                     'weather_cloudy': 1 if weather == '多云' else 0,
-                    'weather_rain': 1 if weather in ['小雨', '大雨'] else 0,
+                    'weather_light_rain': 1 if weather == '小雨' else 0,
+                    'weather_heavy_rain': 1 if weather == '大雨' else 0,
+                    'weather_snow': 1 if weather == '雪' else 0,
                     'weather_hot': 1 if weather == '炎热' else 0,
                     # 滑动窗口特征
                     'sales_1d_ago': past_sales[-1],

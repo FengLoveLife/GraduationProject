@@ -2,7 +2,6 @@
 """
 滚动预测模块
 使用单日预测模型，循环调用实现多日预测
-
 核心功能：
 1. 滚动预测未来1/3/7天销量
 2. 预测结果写入数据库
@@ -28,7 +27,6 @@ class RollingPredictor:
     def __init__(self, predictor: SalesPredictor = None, fe: FeatureEngineer = None, connect_db: bool = True):
         """
         初始化滚动预测器
-
         Args:
             predictor: 销量预测模型（可选，不传则自动加载）
             fe: 特征工程器（可选，不传则自动创建）
@@ -127,9 +125,12 @@ class RollingPredictor:
                 'day_of_week': day_features['day_of_week'],
                 'is_weekend': day_features['is_weekend'],
                 'is_holiday': day_features['is_holiday'],
+                'month': day_features['month'],
                 'weather_sunny': day_features['weather_sunny'],
                 'weather_cloudy': day_features['weather_cloudy'],
-                'weather_rain': day_features['weather_rain'],
+                'weather_light_rain': day_features['weather_light_rain'],
+                'weather_heavy_rain': day_features['weather_heavy_rain'],
+                'weather_snow': day_features['weather_snow'],
                 'weather_hot': day_features['weather_hot'],
                 # 使用滚动更新的past_sales
                 'sales_1d_ago': past_sales[-1],

@@ -264,7 +264,7 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Box, Money, Refresh, Download, Warning, AlarmClock } from '@element-plus/icons-vue'
 import { generateSuggestions, getSuggestionList, getSuggestionSummary, adjustSuggestionQuantity, createPurchaseOrder } from '@/api/restocking'
 
@@ -415,12 +415,26 @@ const handleLightFilterChange = () => {
 
 // 刷新建议（重新生成）
 const handleRefresh = async () => {
-  loading.value = true
+  try {
+    await ElMessageBox.confirm(
+      '重新生成将清空当前所有待处理的进货建议（包括已手动调整的进货量），是否继续？',
+      '确认重新生成',
+      {
+        confirmButtonText: '确认生成',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return  // 用户点了取消，直接返回
+  }
 
+  loading.value = true
   try {
     const res = await generateSuggestions()
     if (res.code === 200) {
-      pagination.currentPage = 1  // 重置到第一页
+      pagination.currentPage = 1
+      selectedIds.value.clear()
       ElMessage.success(res.data.message || '进货建议已更新')
       await fetchSuggestions()
     }
