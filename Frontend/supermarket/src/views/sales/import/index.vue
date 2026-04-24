@@ -45,7 +45,7 @@
             <div class="card-header-row">
               <div class="pos-title">
                 <el-icon><Connection /></el-icon>
-                <span>POS 接口演示工具</span>
+                <span>POS机接口演示工具</span>
               </div>
               <div class="pos-desc">模拟收银系统推送，验证接口对接能力</div>
             </div>

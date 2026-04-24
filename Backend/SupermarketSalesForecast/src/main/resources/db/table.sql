@@ -285,3 +285,16 @@ create table sys_user
 )
     comment '用户管理表';
 
+CREATE TABLE alert_log (
+                           id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+                           alert_type   TINYINT      NOT NULL COMMENT '1=库存告急  2=节假日需求预警',
+                           product_id   BIGINT                COMMENT '商品ID，节假日汇总时为NULL',
+                           product_name VARCHAR(100)          COMMENT '商品名称',
+                           alert_content TEXT        NOT NULL COMMENT '通知正文',
+                           is_read      TINYINT   DEFAULT 0   COMMENT '0=未读  1=已读',
+                           biz_date     DATE        NOT NULL  COMMENT '业务日期，去重用',
+                           create_time  DATETIME    NOT NULL
+) COMMENT '系统预警通知';
+
+CREATE UNIQUE INDEX uk_alert_dedup ON alert_log (alert_type, product_id, biz_date);
+
