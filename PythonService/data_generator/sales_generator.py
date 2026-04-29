@@ -111,11 +111,10 @@ class SalesDataGenerator:
 
         targets = {}
 
-        # ==================== 优化点1：全局大盘波动 ====================
-        # 每天先生成一个"全局客流大盘波动"，模拟整体客流的无差别波动
-        # 比如：今天隔壁小区停水了，导致整个超市客流都少了5%
-        # 这解决了101个商品独立波动加总时正负抵消的问题（大数定律）
-        global_noise = random.uniform(-0.05, 0.05)
+        # ==================== 全局大盘波动（±10%）====================
+        # 模拟整体客流的无差别波动，让每日总营业额曲线有真实呼吸感
+        # 由 ±5% 提升到 ±10%，使聚合层预测误差更贴近真实水平
+        global_noise = random.uniform(-0.10, 0.10)
 
         for code, config in PRODUCTS_CONFIG.items():
             base = config['base_sales']
@@ -125,17 +124,22 @@ class SalesDataGenerator:
             wtf = config['weather_factor'].get(weather, 1.0)
             hf = config['holiday_factor'].get(is_holiday, 1.0)
 
-            # ==================== 优化点2：单品专属波动 ====================
-            # 单品专属波动稍微调小一点（因为要加上全局波动）
-            # 原本±15%，现在单品波动±10%，加上全局波动±5%，总共还是约±15%
-            product_noise_limit = config.get('noise_range', 0.15) - 0.05
+            # ==================== 单品专属波动（±20%）====================
+            # 由原来的 noise_range - 0.05 (≈±10%) 提升到 noise_range + 0.05 (≈±20%)
+            # 真实零售中单品日销量受陈列位置、口碑传播等微观因素影响，波动远超±10%
+            product_noise_limit = config.get('noise_range', 0.15) + 0.05
             local_noise = random.uniform(-product_noise_limit, product_noise_limit)
 
-            # 最终综合波动 = 全局大盘波动(大家同进退) + 单品自身波动(自己瞎跳)
+            # 最终综合波动 = 全局大盘波动 + 单品自身波动
             total_noise = global_noise + local_noise
 
+            # ==================== 偶发扰动（5% 概率）====================
+            # 模拟货架临时调整、供货延迟、偶发活动带来的不可预测冲击
+            # 预测模型没有任何特征能感知此类事件，形成真实的不可消除误差
+            shock = random.uniform(0.55, 1.80) if random.random() < 0.05 else 1.0
+
             # 计算绝对浮点数目标
-            exact_target = base * wf * wtf * hf * (1 + total_noise)
+            exact_target = base * wf * wtf * hf * shock * (1 + total_noise)
 
             if exact_target <= 0:
                 continue

@@ -42,8 +42,8 @@ def print_daily_statistics(db: DatabaseManager, date_str: str):
 def main():
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='销售数据生成器')
-    parser.add_argument('--start', default='2025-12-01', help='开始日期 (默认: 2025-12-01)')
-    parser.add_argument('--end', default='2025-12-31', help='结束日期 (默认: 2025-12-31)')
+    parser.add_argument('--start', default='2025-9-01', help='开始日期 ')
+    parser.add_argument('--end', default='2026-4-26', help='结束日期 ')
     parser.add_argument('--clear', action='store_true', help='清空现有数据后重新生成')
     parser.add_argument('--batch-size', type=int, default=1000, help='批量插入大小 (默认: 1000)')
     args = parser.parse_args()

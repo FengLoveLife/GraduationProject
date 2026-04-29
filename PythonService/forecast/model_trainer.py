@@ -234,8 +234,14 @@ class SalesPredictor:
         if self.model is None:
             raise ValueError("模型尚未加载")
 
-        # 构造特征向量（按 feature_cols 顺序）
-        X = np.array([[features.get(col, 0) for col in self.feature_cols]])
+        # ========== 核心修复：使用 DataFrame 替代 np.array ==========
+        # np.array 不支持 pandas 的 category 类型，导致 LightGBM 无法识别类别特征
+        # 必须使用 DataFrame 并显式转换类别特征类型，与训练时保持一致
+        X = pd.DataFrame([{col: features.get(col, 0) for col in self.feature_cols}])
+
+        # 显式转换类别特征（与训练时第100-103行的处理一致）
+        X['product_id'] = X['product_id'].astype('category')
+        X['category_id'] = X['category_id'].astype('category')
 
         # 预测
         pred = self.model.predict(X, num_iteration=self.model.best_iteration)[0]

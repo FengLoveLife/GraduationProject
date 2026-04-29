@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-滚动预测模块
+预测模块
 使用单日预测模型，循环调用实现多日预测
 核心功能：
 1. 滚动预测未来1/3/7天销量
 2. 预测结果写入数据库
 3. 支持批量预测全部商品
 """
-
 import sys
 import os
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
+
+ #设置搜索路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from forecast.feature_engineering import FeatureEngineer
@@ -42,8 +43,8 @@ class RollingPredictor:
                 os.path.dirname(__file__), 'model', 'sales_forecast_model.pkl'
             )
             if not self.predictor.load_model(model_path):
+                #raise就时python的异常抛出关键字，相当于java的throw
                 raise ValueError("模型加载失败，请先运行 model_trainer.py 训练模型")
-
         # 按需连接数据库（核心修复：避免长期持有连接）
         if connect_db:
             self.fe = fe or FeatureEngineer()
