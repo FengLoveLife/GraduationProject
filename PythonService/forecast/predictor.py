@@ -392,6 +392,7 @@ def run_full_prediction(base_date: str = None, forecast_days: int = 7, save_to_d
     """
     # 设置基准日期
     if base_date:
+        #FeatureEngineer(),类名()在python中就相当与调用类的构造方法来进行实例化对象。相当于Java的new关键字
         fe = FeatureEngineer()
         fe.set_base_date(base_date)
         forecast_start = base_date

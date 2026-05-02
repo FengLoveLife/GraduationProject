@@ -178,11 +178,11 @@ async def run_forecast(
     forecast_start: str = Query(None, description="预测起始日期，格式YYYY-MM-DD，默认为最新销售日期+1天"),
     forecast_days: int = Query(7, description="预测天数", ge=1, le=30)
 ):
+
     """
     触发批量预测
-
     - forecast_start: 预测起始日期，不传则使用最新销售日期+1天
-    - forecast_days: 预测天数，1-30天
+    - forecast_days: 预测天数，1-30天,默认7天，最后修改只能最多7天，但是留个接口，方便之后进行优化。
     """
     try:
         # 核心修复：默认预测日期 = 数据库中销售数据的最后一天 + 1天

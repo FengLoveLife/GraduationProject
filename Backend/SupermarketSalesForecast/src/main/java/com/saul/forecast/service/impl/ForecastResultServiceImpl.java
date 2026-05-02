@@ -108,7 +108,6 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
     @Override
     public Map<String, Object> runBatchForecast(ForecastRunDTO dto) {
         log.info("触发批量预测：startDate={}, days={}", dto.getForecastStart(), dto.getForecastDays());
-
         try {
             String url = pythonServiceUrl + "/forecast/run";
             if (dto.getForecastStart() != null) {
@@ -116,7 +115,7 @@ public class ForecastResultServiceImpl extends ServiceImpl<ForecastResultMapper,
             } else {
                 url += "?forecast_days=" + dto.getForecastDays();
             }
-
+            //参数：1.请求的url地址，2。请求的参数对象，3.请求希望响应的类型
             ResponseEntity<Map> response = restTemplate.postForEntity(url, null, Map.class);
 
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
